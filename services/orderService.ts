@@ -4,7 +4,7 @@ import { collection, setDoc, doc, getDoc, getDocs, query, orderBy, updateDoc } f
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import type { Order } from '../types';
 
-// Hàm phụ: Upload ảnh từ chuỗi Base64 (ảnh thiết kế) lên Firebase Storage
+// Hàm phụ: Upload ảnh từ chuỗi Base64 (Giữ nguyên để sau này dùng lại)
 const uploadImageToStorage = async (dataUrl: string, orderId: string, timestamp: number) => {
     try {
         // Tạo đường dẫn file: orders/Mã_Đơn/ảnh.png
@@ -27,13 +27,11 @@ export const createOrder = async (order: Omit<Order, 'status'>) => {
             // Kiểm tra xem có phải là ảnh chụp màn hình (base64) không
             if (item.previewImageUrl && item.previewImageUrl.startsWith('data:image')) {
                 
-                // --- MỞ LẠI TÍNH NĂNG UPLOAD TẠI ĐÂY ---
-                // Upload lên Firebase để lấy link ngắn gọn
-                const cloudUrl = await uploadImageToStorage(item.previewImageUrl, order.id, Date.now());
+                // --- TẠM THỜI TẮT UPLOAD ĐỂ TRÁNH LỖI TREO ---
+                // const cloudUrl = await uploadImageToStorage(item.previewImageUrl, order.id, Date.now());
                 
-                // Nếu upload thành công -> Lưu link ảnh xịn
-                // Nếu thất bại (do mạng...) -> Lưu chuỗi rỗng (để cứu đơn hàng không bị lỗi)
-                return { ...item, previewImageUrl: cloudUrl || "" };
+                // Trả về chuỗi rỗng để đơn hàng đi qua an toàn
+                return { ...item, previewImageUrl: "" };
             }
             // Nếu là ảnh có sẵn (link online) thì giữ nguyên
             return item;
