@@ -608,7 +608,7 @@ const Step4Summary: React.FC<{ totalPrice: number; priceBreakdown: {label: strin
   );
 };
 
-// Footer cập nhật để nhận navigateTo và có nút Admin
+// Footer cập nhật: XÓA nút Admin chữ "A"
 const Header: React.FC<{ navigateTo: (page: Page) => void; cartCount: number; onCartClick: () => void; }> = ({ navigateTo, cartCount, onCartClick }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -699,7 +699,7 @@ const FacebookIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="feather feather-facebook"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>
 )
 
-// Footer có nút Admin bí mật
+// Footer: Đã XÓA nút Admin
 const Footer: React.FC<{ navigateTo: (page: Page) => void }> = ({ navigateTo }) => {
   return (
     <footer className="bg-white text-gray-800 mt-auto font-body text-sm">
@@ -734,8 +734,6 @@ const Footer: React.FC<{ navigateTo: (page: Page) => void }> = ({ navigateTo }) 
         <div className="border-t border-gray-200">
             <div className="container mx-auto px-6 py-4 text-center text-xs text-gray-500 relative">
                 <p>Copyright © {new Date().getFullYear()} The Luvin. All Rights Reserved.</p>
-                {/* Nút Admin bí mật: Chữ A mờ mờ ở góc */}
-                <button onClick={() => navigateTo('admin')} className="absolute right-4 top-4 opacity-10 hover:opacity-100 text-gray-400 font-bold p-2">A</button>
             </div>
         </div>
     </footer>
@@ -1758,7 +1756,12 @@ const OrderLookupPage: React.FC = () => {
 
 
 const App: React.FC = () => {
-    const [currentPage, setCurrentPage] = useState<Page>('home');
+    // 1. Kiểm tra đường dẫn khi vừa vào web
+    const [currentPage, setCurrentPage] = useState<Page>(() => {
+        if (window.location.hash === '#/admin') return 'admin';
+        return 'home';
+    });
+
     const [config, setConfig] = useState<FrameConfig>(INITIAL_FRAME_CONFIG);
     const [cartItems, setCartItems] = useState<FrameConfig[]>([]);
     const [completedOrder, setCompletedOrder] = useState<Order | null>(null);
@@ -1766,6 +1769,19 @@ const App: React.FC = () => {
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
     const allParts = useMemo(() => Object.values(LEGO_PARTS).flat().reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>), []);
+
+    // 2. Lắng nghe khi người dùng gõ link trên thanh địa chỉ
+    useEffect(() => {
+        const handleHashChange = () => {
+            if (window.location.hash === '#/admin') {
+                setCurrentPage('admin');
+            } else if (window.location.hash === '#/home' || window.location.hash === '') {
+                setCurrentPage('home');
+            }
+        };
+        window.addEventListener('hashchange', handleHashChange);
+        return () => window.removeEventListener('hashchange', handleHashChange);
+    }, []);
 
     const showToast = (message: string, type: 'success' | 'error') => {
         setToast({ message, type });
@@ -1803,6 +1819,7 @@ const App: React.FC = () => {
 
     const navigateTo = (page: Page) => {
         setCurrentPage(page);
+        window.location.hash = page === 'home' ? '' : `#/${page}`;
         window.scrollTo(0, 0);
     };
 
