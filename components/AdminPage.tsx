@@ -11,7 +11,6 @@ const AdminPage: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState<'dashboard' | 'orders'>('dashboard');
 
-    // Mật khẩu tạm thời (Sẽ nâng cấp bảo mật ở Phần 4)
     const ADMIN_PASSWORD = "admin123"; 
 
     useEffect(() => {
@@ -52,6 +51,12 @@ const AdminPage: React.FC = () => {
     };
 
     const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+    
+    // Hàm định dạng ngày tháng cho đẹp (VD: 20/11/2025)
+    const formatDate = (dateString: string) => {
+        if (!dateString) return 'Không rõ';
+        return new Date(dateString).toLocaleDateString('vi-VN');
+    };
 
     // --- TÍNH TOÁN THỐNG KÊ ---
     const stats = useMemo(() => {
@@ -64,7 +69,6 @@ const AdminPage: React.FC = () => {
         return { totalRevenue, totalOrders, pendingOrders, completedOrders, avgOrderValue };
     }, [orders]);
 
-    // --- GIAO DIỆN ĐĂNG NHẬP ---
     if (!isAuthenticated) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -86,10 +90,8 @@ const AdminPage: React.FC = () => {
         );
     }
 
-    // --- GIAO DIỆN DASHBOARD ---
     return (
         <div className="min-h-screen bg-gray-100">
-            {/* Sidebar / Topbar Navigation */}
             <div className="bg-white shadow-sm border-b sticky top-0 z-10">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between h-16">
@@ -124,9 +126,7 @@ const AdminPage: React.FC = () => {
             <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
                 {activeTab === 'dashboard' && (
                     <div className="space-y-6">
-                        {/* Stats Grid */}
                         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                            {/* Doanh thu */}
                             <div className="bg-white overflow-hidden shadow rounded-lg">
                                 <div className="p-5">
                                     <div className="flex items-center">
@@ -142,8 +142,6 @@ const AdminPage: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
-
-                            {/* Đơn hàng */}
                             <div className="bg-white overflow-hidden shadow rounded-lg">
                                 <div className="p-5">
                                     <div className="flex items-center">
@@ -159,8 +157,6 @@ const AdminPage: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
-
-                            {/* Chờ xử lý */}
                             <div className="bg-white overflow-hidden shadow rounded-lg">
                                 <div className="p-5">
                                     <div className="flex items-center">
@@ -176,8 +172,6 @@ const AdminPage: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
-
-                             {/* Giá trị trung bình */}
                              <div className="bg-white overflow-hidden shadow rounded-lg">
                                 <div className="p-5">
                                     <div className="flex items-center">
@@ -195,7 +189,6 @@ const AdminPage: React.FC = () => {
                             </div>
                         </div>
                         
-                        {/* Đơn mới nhất */}
                         <h3 className="text-lg leading-6 font-medium text-gray-900">Đơn hàng mới nhất</h3>
                         <div className="bg-white shadow overflow-hidden sm:rounded-md">
                             <ul className="divide-y divide-gray-200">
@@ -203,7 +196,10 @@ const AdminPage: React.FC = () => {
                                     <li key={order.id} onClick={() => { setSelectedOrder(order); setActiveTab('orders'); }} className="cursor-pointer hover:bg-gray-50">
                                         <div className="px-4 py-4 sm:px-6">
                                             <div className="flex items-center justify-between">
-                                                <p className="text-sm font-medium text-luvin-pink truncate">{order.id}</p>
+                                                <div className="flex flex-col">
+                                                    <p className="text-sm font-medium text-luvin-pink truncate">{order.id}</p>
+                                                    <p className="text-xs text-gray-400 mt-1">Ngày nhận: {formatDate(order.delivery.date)}</p>
+                                                </div>
                                                 <div className="ml-2 flex-shrink-0 flex">
                                                     <p className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                                                         order.status === 'Đã giao hàng' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
@@ -252,8 +248,14 @@ const AdminPage: React.FC = () => {
                                             'bg-blue-100 text-blue-800'
                                         }`}>{order.status}</span>
                                     </div>
-                                    <div className="text-right font-bold text-luvin-pink">
-                                        {formatCurrency(order.totalPrice)}
+                                    {/* Hiển thị ngày nhận hàng ngay ở danh sách để dễ nhìn */}
+                                    <div className="flex justify-between items-end mt-2">
+                                        <span className="text-xs font-semibold bg-gray-100 px-2 py-1 rounded text-gray-600">
+                                            📅 {formatDate(order.delivery.date)}
+                                        </span>
+                                        <div className="text-right font-bold text-luvin-pink">
+                                            {formatCurrency(order.totalPrice)}
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -285,13 +287,24 @@ const AdminPage: React.FC = () => {
                                         {/* Thông tin khách hàng */}
                                         <div>
                                             <h3 className="font-bold text-gray-700 mb-3 uppercase text-sm border-b pb-1">Thông tin khách hàng</h3>
-                                            <div className="space-y-2 text-sm">
+                                            <div className="space-y-3 text-sm">
                                                 <p><span className="font-semibold w-24 inline-block text-gray-500">Họ tên:</span> {selectedOrder.customer.name}</p>
                                                 <p><span className="font-semibold w-24 inline-block text-gray-500">SĐT:</span> {selectedOrder.customer.phone}</p>
                                                 <p><span className="font-semibold w-24 inline-block text-gray-500">Email:</span> {selectedOrder.customer.email}</p>
                                                 <p><span className="font-semibold w-24 inline-block text-gray-500">Địa chỉ:</span> {selectedOrder.customer.address}</p>
-                                                <div className="bg-yellow-50 p-2 rounded border border-yellow-200 mt-2">
-                                                    <p className="font-semibold text-yellow-800">Ghi chú của khách:</p>
+                                                
+                                                {/* LÀM NỔI BẬT NGÀY NHẬN HÀNG */}
+                                                <div className="mt-4">
+                                                     <p className="flex items-center gap-2">
+                                                        <span className="font-semibold w-24 inline-block text-gray-500">Ngày nhận:</span> 
+                                                        <span className="font-bold text-red-600 bg-red-50 px-3 py-1 rounded border border-red-200 text-base">
+                                                            {formatDate(selectedOrder.delivery.date)}
+                                                        </span>
+                                                    </p>
+                                                </div>
+
+                                                <div className="bg-yellow-50 p-3 rounded border border-yellow-200 mt-2">
+                                                    <p className="font-semibold text-yellow-800 mb-1">Ghi chú của khách:</p>
                                                     <p className="italic text-gray-700">{selectedOrder.delivery.notes || 'Không có ghi chú'}</p>
                                                 </div>
                                             </div>
