@@ -14,7 +14,8 @@ import {
 } from './constants';
 import FramePreview from './components/FramePreview';
 import { createOrder, getOrderById } from './services/orderService';
-import AdminPage from './components/AdminPage'; // Import trang Admin
+import AdminPage from './components/AdminPage'; 
+import { sendOrderEmail } from './services/emailService'; // <--- ĐÃ THÊM IMPORT GỬI MAIL
 
 declare var html2canvas: any;
 
@@ -608,7 +609,6 @@ const Step4Summary: React.FC<{ totalPrice: number; priceBreakdown: {label: strin
   );
 };
 
-// Footer cập nhật: XÓA nút Admin chữ "A"
 const Header: React.FC<{ navigateTo: (page: Page) => void; cartCount: number; onCartClick: () => void; }> = ({ navigateTo, cartCount, onCartClick }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -699,7 +699,6 @@ const FacebookIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="feather feather-facebook"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>
 )
 
-// Footer: Đã XÓA nút Admin
 const Footer: React.FC<{ navigateTo: (page: Page) => void }> = ({ navigateTo }) => {
   return (
     <footer className="bg-white text-gray-800 mt-auto font-body text-sm">
@@ -1800,17 +1799,18 @@ const App: React.FC = () => {
         setCartItems(prev => prev.filter((_, i) => i !== index));
     };
 
-    // Hàm đặt hàng mới (đã kết nối Firebase)
+    // Hàm đặt hàng mới (đã kết nối Firebase + Email)
     const handlePlaceOrder = async (orderData: Omit<Order, 'status'>) => {
-        // Hiển thị thông báo
         showToast('Đang gửi đơn hàng...', 'success');
 
-        // Gọi hàm tạo đơn hàng lên Firebase
         const result = await createOrder(orderData);
 
         if (result.success && result.data) {
+            // Gửi email xác nhận (tính năng mới)
+            sendOrderEmail(result.data);
+
             setCompletedOrder(result.data);
-            setCartItems([]); // Xóa sạch giỏ hàng
+            setCartItems([]); 
             navigateTo('order-confirmation');
         } else {
             showToast('Có lỗi xảy ra, vui lòng thử lại!', 'error');
