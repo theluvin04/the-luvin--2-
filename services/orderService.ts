@@ -1,10 +1,10 @@
 // services/orderService.ts
 import { db, storage } from '../config/firebase';
-import { setDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, setDoc, doc, getDoc, getDocs, query, orderBy, updateDoc } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import type { Order } from '../types';
 
-// Hàm phụ: Upload ảnh (Để đó sau này dùng)
+// Hàm phụ: Upload ảnh (Giữ nguyên để sau này dùng)
 const uploadImageToStorage = async (dataUrl: string, orderId: string, timestamp: number) => {
     try {
         const storageRef = ref(storage, `orders/${orderId}/preview_${timestamp}.png`);
@@ -16,16 +16,17 @@ const uploadImageToStorage = async (dataUrl: string, orderId: string, timestamp:
     }
 };
 
-// 1. Hàm tạo đơn hàng mới (ĐÃ TẮT UPLOAD ĐỂ TRÁNH LỖI)
+// 1. Hàm tạo đơn hàng mới (ĐÃ TẮT UPLOAD ĐỂ TRÁNH LỖI TREO)
 export const createOrder = async (order: Omit<Order, 'status'>) => {
     try {
+        // Xử lý ảnh: Bỏ qua upload để tránh lỗi CORS
         const itemsWithImages = await Promise.all(order.items.map(async (item) => {
             if (item.previewImageUrl && item.previewImageUrl.startsWith('data:image')) {
                 
-                // --- QUAN TRỌNG: Tắt dòng này đi ---
+                // --- QUAN TRỌNG: Không upload nữa ---
                 // const cloudUrl = await uploadImageToStorage(item.previewImageUrl, order.id, Date.now());
                 
-                // --- Thay bằng dòng này: Trả về rỗng để đơn hàng đi qua luôn ---
+                // --- Thay bằng: Trả về rỗng để đơn hàng đi qua luôn ---
                 return { ...item, previewImageUrl: "" }; 
             }
             return item;
@@ -62,7 +63,31 @@ export const getOrderById = async (orderId: string): Promise<Order | null> => {
     }
 };
 
-// Các hàm khác (getAllOrders, updateOrder) bạn giữ nguyên hoặc xóa đi nếu file này import thiếu
-// Để an toàn, mình lược bỏ 2 hàm admin ở đây vì file này chủ yếu xử lý logic khách hàng
-// Nếu file services/orderService.ts của bạn đang chứa cả getAllOrders và updateOrder,
-// HÃY CHỈ SỬA HÀM createOrder NHƯ TRÊN THÔI NHÉ.
+// 3. Hàm lấy toàn bộ danh sách đơn hàng (cho trang Admin)
+export const getAllOrders = async (): Promise<Order[]> => {
+    try {
+        const q = query(collection(db, "orders"), orderBy("id", "desc")); 
+        const querySnapshot = await getDocs(q);
+        
+        const orders: Order[] = [];
+        querySnapshot.forEach((doc) => {
+            orders.push(doc.data() as Order);
+        });
+        return orders;
+    } catch (error) {
+        console.error("Lỗi lấy danh sách đơn:", error);
+        return [];
+    }
+};
+
+// 4. Hàm cập nhật thông tin đơn hàng
+export const updateOrder = async (orderId: string, updates: Partial<Order>) => {
+    try {
+        const orderRef = doc(db, "orders", orderId);
+        await updateDoc(orderRef, updates);
+        return true;
+    } catch (error) {
+        console.error("Lỗi cập nhật đơn hàng:", error);
+        return false;
+    }
+};
