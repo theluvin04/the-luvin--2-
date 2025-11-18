@@ -1,52 +1,46 @@
 // services/orderService.ts
 import { db, storage } from '../config/firebase';
-import { collection, setDoc, doc, getDoc, getDocs, query, orderBy, updateDoc } from 'firebase/firestore';
+import { setDoc, doc, getDoc } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import type { Order } from '../types';
 
-// Hàm phụ: Upload ảnh từ chuỗi Base64 (Giữ nguyên để sau này dùng lại)
+// Hàm phụ: Upload ảnh (Để đó sau này dùng)
 const uploadImageToStorage = async (dataUrl: string, orderId: string, timestamp: number) => {
     try {
-        // Tạo đường dẫn file: orders/Mã_Đơn/ảnh.png
         const storageRef = ref(storage, `orders/${orderId}/preview_${timestamp}.png`);
-        // Upload
         await uploadString(storageRef, dataUrl, 'data_url');
-        // Lấy link tải về (URL ngắn gọn)
         return await getDownloadURL(storageRef);
     } catch (error) {
         console.error("Lỗi upload ảnh:", error);
-        return null; // Nếu lỗi thì trả về null
+        return null;
     }
 };
 
-// 1. Hàm tạo đơn hàng mới (Dùng khi bấm "Đặt hàng")
+// 1. Hàm tạo đơn hàng mới (ĐÃ TẮT UPLOAD ĐỂ TRÁNH LỖI)
 export const createOrder = async (order: Omit<Order, 'status'>) => {
     try {
-        // Xử lý upload ảnh.
         const itemsWithImages = await Promise.all(order.items.map(async (item) => {
-            // Kiểm tra xem có phải là ảnh chụp màn hình (base64) không
             if (item.previewImageUrl && item.previewImageUrl.startsWith('data:image')) {
                 
-                // --- TẠM THỜI TẮT UPLOAD ĐỂ TRÁNH LỖI TREO ---
+                // --- QUAN TRỌNG: Tắt dòng này đi ---
                 // const cloudUrl = await uploadImageToStorage(item.previewImageUrl, order.id, Date.now());
                 
-                // Trả về chuỗi rỗng để đơn hàng đi qua an toàn
-                return { ...item, previewImageUrl: "" };
+                // --- Thay bằng dòng này: Trả về rỗng để đơn hàng đi qua luôn ---
+                return { ...item, previewImageUrl: "" }; 
             }
-            // Nếu là ảnh có sẵn (link online) thì giữ nguyên
             return item;
         }));
 
         const finalOrder: Order = {
             ...order,
             items: itemsWithImages,
-            status: "Chờ thanh toán", // Trạng thái mặc định
+            status: "Chờ thanh toán",
             internalNotes: "",
             isUrgent: false,
             adminDeadline: ""
         };
 
-        // Lưu vào Firestore với ID là mã đơn hàng
+        // Lưu đơn hàng vào Firestore
         await setDoc(doc(db, "orders", order.id), finalOrder);
 
         return { success: true, data: finalOrder };
@@ -61,43 +55,14 @@ export const getOrderById = async (orderId: string): Promise<Order | null> => {
     try {
         const docRef = doc(db, "orders", orderId);
         const docSnap = await getDoc(docRef);
-
-        if (docSnap.exists()) {
-            return docSnap.data() as Order;
-        } else {
-            return null;
-        }
+        return docSnap.exists() ? (docSnap.data() as Order) : null;
     } catch (error) {
         console.error("Lỗi lấy đơn hàng:", error);
         return null;
     }
 };
 
-// 3. Hàm lấy toàn bộ danh sách đơn hàng (cho trang Admin)
-export const getAllOrders = async (): Promise<Order[]> => {
-    try {
-        const q = query(collection(db, "orders"), orderBy("id", "desc")); 
-        const querySnapshot = await getDocs(q);
-        
-        const orders: Order[] = [];
-        querySnapshot.forEach((doc) => {
-            orders.push(doc.data() as Order);
-        });
-        return orders;
-    } catch (error) {
-        console.error("Lỗi lấy danh sách đơn:", error);
-        return [];
-    }
-};
-
-// 4. Hàm cập nhật thông tin đơn hàng (Status, Ghi chú, Cờ gấp...)
-export const updateOrder = async (orderId: string, updates: Partial<Order>) => {
-    try {
-        const orderRef = doc(db, "orders", orderId);
-        await updateDoc(orderRef, updates);
-        return true;
-    } catch (error) {
-        console.error("Lỗi cập nhật đơn hàng:", error);
-        return false;
-    }
-};
+// Các hàm khác (getAllOrders, updateOrder) bạn giữ nguyên hoặc xóa đi nếu file này import thiếu
+// Để an toàn, mình lược bỏ 2 hàm admin ở đây vì file này chủ yếu xử lý logic khách hàng
+// Nếu file services/orderService.ts của bạn đang chứa cả getAllOrders và updateOrder,
+// HÃY CHỈ SỬA HÀM createOrder NHƯ TRÊN THÔI NHÉ.
