@@ -8,7 +8,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyCEEblAsaEQPDGeEO7PLrzDLfpa7Z8O1ss",
   authDomain: "the-luvin.firebaseapp.com",
   projectId: "the-luvin",
-  storageBucket: "the-luvin.firebasestorage.app",
+  storageBucket: "the-luvin.appspot.com",
   messagingSenderId: "280180645664",
   appId: "1:280180645664:web:616b7a84d214629e064145",
   measurementId: "G-1E58PMLPRP"
