@@ -1,7 +1,7 @@
-// FIX: Removed import of FrameConfig from './App' as it caused a circular dependency and is defined within this file.
+// types.ts
 
-// Fix: Define the Page type directly to resolve a circular dependency.
-export type Page = 'home' | 'builder' | 'collection' | 'feedback' | 'order-lookup' | 'contact' | 'cart' | 'checkout' | 'order-confirmation';
+// Thêm 'admin' vào danh sách các trang
+export type Page = 'home' | 'builder' | 'collection' | 'feedback' | 'order-lookup' | 'contact' | 'cart' | 'checkout' | 'order-confirmation' | 'admin';
 
 export interface FrameOption {
   id: string;
@@ -81,7 +81,6 @@ export interface DraggableItem {
     scale: number; // multiplier
 }
 
-// FIX: Define the missing BackgroundConfig interface.
 export interface BackgroundConfig {
   type: 'color' | 'image' | 'upload';
   value: string;

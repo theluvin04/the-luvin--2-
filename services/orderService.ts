@@ -1,36 +1,36 @@
 // services/orderService.ts
 import { db, storage } from '../config/firebase';
-import { setDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, setDoc, doc, getDoc, getDocs, query, orderBy, updateDoc } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import type { Order } from '../types';
 
-// Hàm phụ: Upload ảnh (Giữ nguyên để sau này dùng lại)
+// Hàm phụ: Upload ảnh từ chuỗi Base64 (ảnh thiết kế) lên Firebase Storage
 const uploadImageToStorage = async (dataUrl: string, orderId: string, timestamp: number) => {
     try {
+        // Tạo đường dẫn file: orders/Mã_Đơn/ảnh.png
         const storageRef = ref(storage, `orders/${orderId}/preview_${timestamp}.png`);
+        // Upload
         await uploadString(storageRef, dataUrl, 'data_url');
+        // Lấy link tải về (URL ngắn gọn)
         return await getDownloadURL(storageRef);
     } catch (error) {
         console.error("Lỗi upload ảnh:", error);
-        return null;
+        return null; // Nếu lỗi thì trả về null
     }
 };
 
-// 1. Hàm tạo đơn hàng mới (Đã tắt upload ảnh để fix lỗi treo)
+// 1. Hàm tạo đơn hàng mới (Dùng khi bấm "Đặt hàng")
 export const createOrder = async (order: Omit<Order, 'status'>) => {
     try {
-        // Xử lý danh sách sản phẩm
+        // Xử lý upload ảnh. Nếu lỗi thì bỏ qua ảnh để vẫn lưu được đơn hàng.
         const itemsWithImages = await Promise.all(order.items.map(async (item) => {
-            // Kiểm tra nếu có ảnh base64
             if (item.previewImageUrl && item.previewImageUrl.startsWith('data:image')) {
-                
-                // --- ĐOẠN SỬA QUAN TRỌNG ---
-                // Tạm thời KHÔNG gọi hàm upload để tránh bị treo do lỗi mạng/CORS
+                // Tạm thời tắt upload ảnh để tránh lỗi treo do CORS/Mạng
+                // Khi nào sửa xong CORS thì mở lại dòng dưới:
                 // const cloudUrl = await uploadImageToStorage(item.previewImageUrl, order.id, Date.now());
                 
-                // Thay vào đó, ta trả về chuỗi rỗng. 
-                // Việc này giúp đơn hàng nhẹ tênh và đi thẳng vào database ngay lập tức.
-                return { ...item, previewImageUrl: "" }; 
+                // Trả về chuỗi rỗng để đơn hàng đi qua an toàn
+                return { ...item, previewImageUrl: "" };
             }
             return item;
         }));
@@ -51,7 +51,7 @@ export const createOrder = async (order: Omit<Order, 'status'>) => {
     }
 };
 
-// 2. Hàm tra cứu đơn hàng
+// 2. Hàm tra cứu đơn hàng (Dùng cho trang "Tra cứu")
 export const getOrderById = async (orderId: string): Promise<Order | null> => {
     try {
         const docRef = doc(db, "orders", orderId);
@@ -65,5 +65,37 @@ export const getOrderById = async (orderId: string): Promise<Order | null> => {
     } catch (error) {
         console.error("Lỗi lấy đơn hàng:", error);
         return null;
+    }
+};
+
+// 3. Hàm lấy toàn bộ danh sách đơn hàng (cho trang Admin)
+export const getAllOrders = async (): Promise<Order[]> => {
+    try {
+        // Lấy đơn hàng, sắp xếp cái mới nhất lên đầu
+        const q = query(collection(db, "orders"), orderBy("id", "desc")); 
+        const querySnapshot = await getDocs(q);
+        
+        const orders: Order[] = [];
+        querySnapshot.forEach((doc) => {
+            orders.push(doc.data() as Order);
+        });
+        return orders;
+    } catch (error) {
+        console.error("Lỗi lấy danh sách đơn:", error);
+        return [];
+    }
+};
+
+// 4. Hàm cập nhật trạng thái đơn hàng
+export const updateOrderStatus = async (orderId: string, newStatus: string) => {
+    try {
+        const orderRef = doc(db, "orders", orderId);
+        await updateDoc(orderRef, {
+            status: newStatus
+        });
+        return true;
+    } catch (error) {
+        console.error("Lỗi cập nhật trạng thái:", error);
+        return false;
     }
 };
