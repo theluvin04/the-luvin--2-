@@ -1,8 +1,8 @@
 // services/orderService.ts
-import { db, storage } from '../config/firebase'; // Nhập từ file config bạn vừa tạo
-import { collection, setDoc, doc, getDoc } from 'firebase/firestore';
+import { db, storage } from '../config/firebase';
+import { setDoc, doc, getDoc } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
-import type { Order } from '../types'; // Nhập kiểu dữ liệu Order từ file types.ts ở gốc
+import type { Order } from '../types';
 
 // Hàm phụ: Upload ảnh từ chuỗi Base64 (ảnh thiết kế) lên Firebase Storage
 const uploadImageToStorage = async (dataUrl: string, orderId: string, timestamp: number) => {
@@ -22,12 +22,14 @@ const uploadImageToStorage = async (dataUrl: string, orderId: string, timestamp:
 // 1. Hàm tạo đơn hàng mới (Dùng khi bấm "Đặt hàng")
 export const createOrder = async (order: Omit<Order, 'status'>) => {
     try {
-        // Vì ảnh thiết kế đang ở dạng mã hóa dài (base64), ta cần upload lên Storage trước
+        // Xử lý upload ảnh. Nếu lỗi thì bỏ qua ảnh để vẫn lưu được đơn hàng.
         const itemsWithImages = await Promise.all(order.items.map(async (item) => {
             if (item.previewImageUrl && item.previewImageUrl.startsWith('data:image')) {
                 const cloudUrl = await uploadImageToStorage(item.previewImageUrl, order.id, Date.now());
-                // Thay thế mã base64 dài ngoằng bằng link ảnh ngắn gọn
-                return { ...item, previewImageUrl: cloudUrl || item.previewImageUrl };
+                
+                // QUAN TRỌNG: Nếu upload thất bại (cloudUrl là null), ta trả về chuỗi rỗng "" 
+                // để tránh lỗi Database do chuỗi base64 quá nặng.
+                return { ...item, previewImageUrl: cloudUrl || "" };
             }
             return item;
         }));
@@ -38,7 +40,7 @@ export const createOrder = async (order: Omit<Order, 'status'>) => {
             status: "Chờ thanh toán", // Trạng thái mặc định
         };
 
-        // Lưu vào Firestore với ID là mã đơn hàng (ví dụ #TL123456)
+        // Lưu vào Firestore với ID là mã đơn hàng
         await setDoc(doc(db, "orders", order.id), finalOrder);
 
         return { success: true, data: finalOrder };
