@@ -1,6 +1,6 @@
 // types.ts
 
-// Thêm 'admin' vào danh sách các trang
+// Danh sách các trang
 export type Page = 'home' | 'builder' | 'collection' | 'feedback' | 'order-lookup' | 'contact' | 'cart' | 'checkout' | 'order-confirmation' | 'admin';
 
 export interface FrameOption {
@@ -19,25 +19,23 @@ export interface OutfitColor {
   name: string;
   hex: string;
   imageUrl: string;
-  price: number; // Additional price for this color
+  price: number; 
 }
 
 export interface LegoPart {
   id: string;
   name: string;
-  price: number; // Base price (for default color)
+  price: number; 
   imageUrl: string;
   type: 'hair' | 'face' | 'shirt' | 'pants' | 'accessory' | 'pet' | 'hat';
   widthCm: number;
   heightCm: number;
   colors?: OutfitColor[];
-  // New metadata for precise hair positioning
-  attach?: { x: number; y: number }; // Attachment point within the image (0-1 scale)
-  slices?: boolean; // Does the hair have a back/front part?
-  dx?: number; // Fine-tuning offset in cm
-  dy?: number; // Fine-tuning offset in cm
+  attach?: { x: number; y: number }; 
+  slices?: boolean; 
+  dx?: number; 
+  dy?: number; 
 }
-
 
 export interface LegoCharacterConfig {
   id: number;
@@ -49,36 +47,36 @@ export interface LegoCharacterConfig {
   selectedShirtColor?: OutfitColor; 
   selectedPantsColor?: OutfitColor;
   customPrintPrice?: number;
-  x: number; // percentage from left
-  y: number; // percentage from top
-  rotation: number; // degrees
-  scale: number; // multiplier
-  previousHair?: LegoPart; // To restore hair when hat is removed
+  x: number; 
+  y: number; 
+  rotation: number; 
+  scale: number; 
+  previousHair?: LegoPart; 
 }
 
 export interface TextConfig {
   id: number;
   content: string;
   font: string;
-  size: number; // Now a relative size, e.g., 1-100
+  size: number; 
   color: string;
-  x: number; // percentage from left
-  y: number; // percentage from top
-  rotation: number; // degrees
-  scale: number; // multiplier
+  x: number; 
+  y: number; 
+  rotation: number; 
+  scale: number; 
   background: boolean;
   textAlign?: 'left' | 'center' | 'right';
-  width?: number; // percentage of parent width for resizable text box
+  width?: number; 
 }
 
 export interface DraggableItem {
     id: number;
-    partId: string; // For accessories/pets, it's the LegoPart ID. For charms, it's the data URL.
+    partId: string; 
     type: 'accessory' | 'pet' | 'charm';
-    x: number; // percentage from left
-    y: number; // percentage from top
-    rotation: number; // degrees
-    scale: number; // multiplier
+    x: number; 
+    y: number; 
+    rotation: number; 
+    scale: number; 
 }
 
 export interface BackgroundConfig {
@@ -119,4 +117,8 @@ export interface Order {
   };
   totalPrice: number;
   amountToPay: number;
+  
+  // --- MỚI THÊM ---
+  internalNotes?: string; // Ghi chú nội bộ của Admin
+  isUrgent?: boolean;     // Cờ đánh dấu đơn gấp thủ công
 }
