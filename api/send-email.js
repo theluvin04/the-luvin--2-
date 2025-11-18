@@ -4,7 +4,7 @@ import nodemailer from 'nodemailer';
 // Cấu hình tài khoản gửi mail (Nên dùng biến môi trường, nhưng hardcode tạm để test)
 // SAU NÀY NÊN ĐƯA VÀO FILE .env ĐỂ BẢO MẬT
 const EMAIL_USER = "theluvin.gifts@gmail.com"; // Thay bằng email của bạn
-const EMAIL_PASS = "xxxx xxxx xxxx xxxx";      // Thay bằng Mật khẩu ứng dụng 16 ký tự bạn vừa lấy
+const EMAIL_PASS = "issa rseg memb fhoa";      // Thay bằng Mật khẩu ứng dụng 16 ký tự bạn vừa lấy
 
 export default async function handler(req, res) {
     // Chỉ chấp nhận method POST
