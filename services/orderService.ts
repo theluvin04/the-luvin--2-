@@ -4,37 +4,51 @@ import { collection, setDoc, doc, getDoc, getDocs, query, orderBy, updateDoc } f
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import type { Order } from '../types';
 
-// Hàm phụ: Upload ảnh (Giữ nguyên logic cũ)
+// Hàm phụ: Upload ảnh từ chuỗi Base64 (ảnh thiết kế) lên Firebase Storage
 const uploadImageToStorage = async (dataUrl: string, orderId: string, timestamp: number) => {
     try {
+        // Tạo đường dẫn file: orders/Mã_Đơn/ảnh.png
         const storageRef = ref(storage, `orders/${orderId}/preview_${timestamp}.png`);
+        // Upload
         await uploadString(storageRef, dataUrl, 'data_url');
+        // Lấy link tải về (URL ngắn gọn)
         return await getDownloadURL(storageRef);
     } catch (error) {
         console.error("Lỗi upload ảnh:", error);
-        return null;
+        return null; // Nếu lỗi thì trả về null
     }
 };
 
-// 1. Hàm tạo đơn hàng mới
+// 1. Hàm tạo đơn hàng mới (Dùng khi bấm "Đặt hàng")
 export const createOrder = async (order: Omit<Order, 'status'>) => {
     try {
-        // Logic xử lý ảnh (đang tạm tắt upload để tránh lỗi treo, trả về rỗng)
+        // Xử lý upload ảnh.
         const itemsWithImages = await Promise.all(order.items.map(async (item) => {
+            // Kiểm tra xem có phải là ảnh chụp màn hình (base64) không
             if (item.previewImageUrl && item.previewImageUrl.startsWith('data:image')) {
-                return { ...item, previewImageUrl: "" };
+                
+                // --- MỞ LẠI TÍNH NĂNG UPLOAD TẠI ĐÂY ---
+                // Upload lên Firebase để lấy link ngắn gọn
+                const cloudUrl = await uploadImageToStorage(item.previewImageUrl, order.id, Date.now());
+                
+                // Nếu upload thành công -> Lưu link ảnh xịn
+                // Nếu thất bại (do mạng...) -> Lưu chuỗi rỗng (để cứu đơn hàng không bị lỗi)
+                return { ...item, previewImageUrl: cloudUrl || "" };
             }
+            // Nếu là ảnh có sẵn (link online) thì giữ nguyên
             return item;
         }));
 
         const finalOrder: Order = {
             ...order,
             items: itemsWithImages,
-            status: "Chờ thanh toán", 
-            internalNotes: "", // Mặc định ghi chú trống
-            isUrgent: false    // Mặc định không gấp
+            status: "Chờ thanh toán", // Trạng thái mặc định
+            internalNotes: "",
+            isUrgent: false,
+            adminDeadline: ""
         };
 
+        // Lưu vào Firestore với ID là mã đơn hàng
         await setDoc(doc(db, "orders", order.id), finalOrder);
 
         return { success: true, data: finalOrder };
@@ -49,7 +63,12 @@ export const getOrderById = async (orderId: string): Promise<Order | null> => {
     try {
         const docRef = doc(db, "orders", orderId);
         const docSnap = await getDoc(docRef);
-        return docSnap.exists() ? (docSnap.data() as Order) : null;
+
+        if (docSnap.exists()) {
+            return docSnap.data() as Order;
+        } else {
+            return null;
+        }
     } catch (error) {
         console.error("Lỗi lấy đơn hàng:", error);
         return null;
@@ -73,8 +92,7 @@ export const getAllOrders = async (): Promise<Order[]> => {
     }
 };
 
-// 4. Hàm cập nhật thông tin đơn hàng (Dùng chung cho Status, Ghi chú, Cờ gấp)
-// Thay thế hàm updateOrderStatus cũ bằng hàm này mạnh mẽ hơn
+// 4. Hàm cập nhật thông tin đơn hàng (Status, Ghi chú, Cờ gấp...)
 export const updateOrder = async (orderId: string, updates: Partial<Order>) => {
     try {
         const orderRef = doc(db, "orders", orderId);
