@@ -13,9 +13,9 @@ import {
     GENERAL_ASSETS,
 } from './constants';
 import FramePreview from './components/FramePreview';
-import { createOrder, getOrderById } from './services/orderService';
-import AdminPage from './components/AdminPage'; 
-import { sendOrderEmail } from './services/emailService'; // <--- ĐÃ THÊM IMPORT GỬI MAIL
+import { createOrder, getOrderById } from './services/orderService'; // Kết nối Firebase
+import AdminPage from './components/AdminPage'; // Trang Admin
+import { sendOrderEmail } from './services/emailService'; // Hàm gửi mail
 
 declare var html2canvas: any;
 
@@ -1341,12 +1341,16 @@ const CartPanel: React.FC<{
   );
 };
 
+const ZoomIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+)
 
 const CheckoutPage: React.FC<{
   cartItems: FrameConfig[];
   allParts: Record<string, LegoPart>;
   onPlaceOrder: (order: Omit<Order, 'status'>) => void;
-}> = ({ cartItems, allParts, onPlaceOrder }) => {
+  onZoomImage: (url: string) => void;
+}> = ({ cartItems, allParts, onPlaceOrder, onZoomImage }) => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -1514,7 +1518,12 @@ const CheckoutPage: React.FC<{
                   return (
                     <div key={index} className="flex justify-between items-center text-sm">
                       <div className="flex items-center gap-2">
-                        <img src={item.previewImageUrl} className="w-10 h-10 object-contain bg-white border rounded" alt="preview" />
+                        <div className="w-10 h-10 object-contain bg-white border rounded cursor-pointer group relative" onClick={() => item.previewImageUrl && onZoomImage(item.previewImageUrl)}>
+                            <img src={item.previewImageUrl} className="w-full h-full object-contain" alt="preview" />
+                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <ZoomIcon />
+                            </div>
+                        </div>
                         <span>Khung tùy chỉnh</span>
                       </div>
                       <span>{formatCurrency(totalPrice)}</span>
@@ -1559,7 +1568,7 @@ const CheckoutPage: React.FC<{
   );
 };
 
-const OrderConfirmationPage: React.FC<{ order: Order | null, navigateTo: (page: Page) => void }> = ({ order, navigateTo }) => {
+const OrderConfirmationPage: React.FC<{ order: Order | null, navigateTo: (page: Page) => void, onZoomImage: (url: string) => void }> = ({ order, navigateTo, onZoomImage }) => {
     useEffect(() => {
         if (!order) {
             navigateTo('home');
@@ -1596,7 +1605,12 @@ const OrderConfirmationPage: React.FC<{ order: Order | null, navigateTo: (page: 
                          <div className="space-y-4">
                             <div className="bg-gray-50 rounded-lg border p-4 flex justify-between items-center">
                                 <div className="flex items-center gap-4">
-                                  <img src={order.items[0].previewImageUrl} className="w-16 h-16 object-contain bg-white border rounded" alt="preview" />
+                                  <div className="w-16 h-16 object-contain bg-white border rounded cursor-pointer group relative" onClick={() => order.items[0].previewImageUrl && onZoomImage(order.items[0].previewImageUrl)}>
+                                    <img src={order.items[0].previewImageUrl} className="w-full h-full object-contain" alt="preview" />
+                                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <ZoomIcon />
+                                    </div>
+                                  </div>
                                   <div>
                                     <p className="font-semibold">Khung tùy chỉnh x 1</p>
                                   </div>
@@ -1628,7 +1642,7 @@ const OrderConfirmationPage: React.FC<{ order: Order | null, navigateTo: (page: 
     )
 };
 
-const OrderLookupPage: React.FC = () => {
+const OrderLookupPage: React.FC<{onZoomImage: (url: string) => void}> = ({onZoomImage}) => {
     const [orderCode, setOrderCode] = useState('');
     const [foundOrder, setFoundOrder] = useState<Order | null | 'not_found'>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -1753,6 +1767,29 @@ const OrderLookupPage: React.FC = () => {
     );
 };
 
+const ZoomModal: React.FC<{ imageUrl: string; onClose: () => void }> = ({ imageUrl, onClose }) => {
+  return (
+    <div 
+      className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div 
+        className="relative bg-white p-2 sm:p-4 rounded-lg shadow-2xl max-w-3xl w-full max-h-[90vh]"
+        onClick={e => e.stopPropagation()} // Prevent closing when clicking on the image itself
+      >
+        <img src={imageUrl} alt="Zoomed Preview" className="w-full h-full object-contain" />
+        <button 
+          onClick={onClose} 
+          className="absolute -top-3 -right-3 bg-white text-black rounded-full h-8 w-8 flex items-center justify-center text-xl font-bold shadow-lg hover:bg-gray-200 transition-colors"
+          aria-label="Close"
+        >
+          &times;
+        </button>
+      </div>
+    </div>
+  );
+};
+
 
 const App: React.FC = () => {
     // 1. Kiểm tra đường dẫn khi vừa vào web
@@ -1766,6 +1803,7 @@ const App: React.FC = () => {
     const [completedOrder, setCompletedOrder] = useState<Order | null>(null);
     const [isCartOpen, setIsCartOpen] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+    const [zoomedImageUrl, setZoomedImageUrl] = useState<string | null>(null);
 
     const allParts = useMemo(() => Object.values(LEGO_PARTS).flat().reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>), []);
 
@@ -1832,13 +1870,13 @@ const App: React.FC = () => {
             case 'collection':
                 return <CollectionPage navigateTo={navigateTo} setConfig={setConfig} />;
             case 'order-lookup':
-                return <OrderLookupPage />;
+                return <OrderLookupPage onZoomImage={setZoomedImageUrl} />;
             case 'cart':
                 return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allParts={allParts} navigateTo={navigateTo} />;
             case 'checkout':
-                return <CheckoutPage cartItems={cartItems} allParts={allParts} onPlaceOrder={handlePlaceOrder} />;
+                return <CheckoutPage cartItems={cartItems} allParts={allParts} onPlaceOrder={handlePlaceOrder} onZoomImage={setZoomedImageUrl} />;
             case 'order-confirmation':
-                return <OrderConfirmationPage order={completedOrder} navigateTo={navigateTo} />;
+                return <OrderConfirmationPage order={completedOrder} navigateTo={navigateTo} onZoomImage={setZoomedImageUrl} />;
             case 'admin': // Trang Admin mới
                 return <AdminPage />;
             default:
@@ -1866,6 +1904,7 @@ const App: React.FC = () => {
                     {toast.message}
                 </div>
             )}
+            {zoomedImageUrl && <ZoomModal imageUrl={zoomedImageUrl} onClose={() => setZoomedImageUrl(null)} />}
         </div>
     );
 };
