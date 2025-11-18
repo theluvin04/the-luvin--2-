@@ -10,6 +10,9 @@ const AdminPage: React.FC = () => {
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState<'dashboard' | 'orders'>('dashboard');
+    
+    // THÊM STATE SẮP XẾP
+    const [sortMode, setSortMode] = useState<'newest' | 'urgent'>('newest');
 
     const ADMIN_PASSWORD = "admin123"; 
 
@@ -52,7 +55,6 @@ const AdminPage: React.FC = () => {
 
     const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
     
-    // Hàm định dạng ngày tháng cho đẹp (VD: 20/11/2025)
     const formatDate = (dateString: string) => {
         if (!dateString) return 'Không rõ';
         return new Date(dateString).toLocaleDateString('vi-VN');
@@ -68,6 +70,24 @@ const AdminPage: React.FC = () => {
 
         return { totalRevenue, totalOrders, pendingOrders, completedOrders, avgOrderValue };
     }, [orders]);
+
+    // --- XỬ LÝ SẮP XẾP ĐƠN HÀNG ---
+    const sortedOrders = useMemo(() => {
+        let result = [...orders];
+        if (sortMode === 'urgent') {
+            // Sắp xếp theo ngày nhận hàng (Tăng dần: Ngày gần nhất lên đầu)
+            result.sort((a, b) => {
+                // Nếu không có ngày, đẩy xuống đáy
+                if (!a.delivery.date) return 1;
+                if (!b.delivery.date) return -1;
+                return new Date(a.delivery.date).getTime() - new Date(b.delivery.date).getTime();
+            });
+        } else {
+            // Mặc định: Mới nhất lên đầu (ID giảm dần)
+            result.sort((a, b) => (a.id < b.id ? 1 : -1));
+        }
+        return result;
+    }, [orders, sortMode]);
 
     if (!isAuthenticated) {
         return (
@@ -127,6 +147,7 @@ const AdminPage: React.FC = () => {
                 {activeTab === 'dashboard' && (
                     <div className="space-y-6">
                         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                            {/* Stats Cards - Giữ nguyên */}
                             <div className="bg-white overflow-hidden shadow rounded-lg">
                                 <div className="p-5">
                                     <div className="flex items-center">
@@ -142,7 +163,8 @@ const AdminPage: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
-                            <div className="bg-white overflow-hidden shadow rounded-lg">
+                            {/* ... Các thẻ thống kê khác giữ nguyên ... */}
+                             <div className="bg-white overflow-hidden shadow rounded-lg">
                                 <div className="p-5">
                                     <div className="flex items-center">
                                         <div className="flex-shrink-0 bg-blue-100 rounded-md p-3">
@@ -189,33 +211,32 @@ const AdminPage: React.FC = () => {
                             </div>
                         </div>
                         
-                        <h3 className="text-lg leading-6 font-medium text-gray-900">Đơn hàng mới nhất</h3>
+                        <h3 className="text-lg leading-6 font-medium text-gray-900">Đơn hàng cần xử lý gấp</h3>
                         <div className="bg-white shadow overflow-hidden sm:rounded-md">
                             <ul className="divide-y divide-gray-200">
-                                {orders.slice(0, 5).map((order) => (
-                                    <li key={order.id} onClick={() => { setSelectedOrder(order); setActiveTab('orders'); }} className="cursor-pointer hover:bg-gray-50">
+                                {/* Hiển thị top 5 đơn hàng gấp nhất (theo ngày nhận) */}
+                                {orders
+                                  .filter(o => o.status !== 'Đã giao hàng' && o.status !== 'Hủy đơn')
+                                  .sort((a, b) => {
+                                      if (!a.delivery.date) return 1;
+                                      if (!b.delivery.date) return -1;
+                                      return new Date(a.delivery.date).getTime() - new Date(b.delivery.date).getTime();
+                                  })
+                                  .slice(0, 5)
+                                  .map((order) => (
+                                    <li key={order.id} onClick={() => { setSelectedOrder(order); setActiveTab('orders'); }} className="cursor-pointer hover:bg-red-50 border-l-4 border-transparent hover:border-red-500">
                                         <div className="px-4 py-4 sm:px-6">
                                             <div className="flex items-center justify-between">
                                                 <div className="flex flex-col">
-                                                    <p className="text-sm font-medium text-luvin-pink truncate">{order.id}</p>
-                                                    <p className="text-xs text-gray-400 mt-1">Ngày nhận: {formatDate(order.delivery.date)}</p>
+                                                    <p className="text-sm font-bold text-gray-800">{order.id}</p>
+                                                    <p className="text-sm text-red-600 font-semibold">📅 Hạn: {formatDate(order.delivery.date)}</p>
                                                 </div>
                                                 <div className="ml-2 flex-shrink-0 flex">
                                                     <p className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                                        order.status === 'Đã giao hàng' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                                                        order.status === 'Chờ thanh toán' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'
                                                     }`}>
                                                         {order.status}
                                                     </p>
-                                                </div>
-                                            </div>
-                                            <div className="mt-2 sm:flex sm:justify-between">
-                                                <div className="sm:flex">
-                                                    <p className="flex items-center text-sm text-gray-500">
-                                                        {order.customer.name} - {order.customer.phone}
-                                                    </p>
-                                                </div>
-                                                <div className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                                                    <p>{formatCurrency(order.totalPrice)}</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -229,36 +250,64 @@ const AdminPage: React.FC = () => {
                 {activeTab === 'orders' && (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-140px)]">
                         {/* Cột trái: Danh sách đơn hàng */}
-                        <div className="lg:col-span-1 bg-white rounded-lg shadow overflow-hidden overflow-y-auto">
-                            {orders.map(order => (
-                                <div 
-                                    key={order.id} 
-                                    onClick={() => setSelectedOrder(order)}
-                                    className={`p-4 border-b cursor-pointer hover:bg-gray-50 transition-colors ${selectedOrder?.id === order.id ? 'bg-pink-50 border-l-4 border-luvin-pink' : ''}`}
+                        <div className="lg:col-span-1 bg-white rounded-lg shadow overflow-hidden flex flex-col">
+                            
+                            {/* THANH CÔNG CỤ SẮP XẾP */}
+                            <div className="p-3 border-b bg-gray-50 flex gap-2">
+                                <button
+                                    onClick={() => setSortMode('newest')}
+                                    className={`flex-1 py-2 text-xs font-bold rounded transition-all ${
+                                        sortMode === 'newest' 
+                                        ? 'bg-white border-2 border-luvin-pink text-luvin-pink shadow-sm' 
+                                        : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                                    }`}
                                 >
-                                    <div className="flex justify-between mb-1">
-                                        <span className="font-bold text-gray-800">{order.id}</span>
-                                        <span className="text-xs text-gray-500">Mới</span>
-                                    </div>
-                                    <div className="flex justify-between text-sm mb-1">
-                                        <span>{order.customer.name}</span>
-                                        <span className={`font-semibold px-2 py-0.5 rounded text-xs ${
-                                            order.status === 'Chờ thanh toán' ? 'bg-yellow-100 text-yellow-800' :
-                                            order.status === 'Đã giao hàng' ? 'bg-green-100 text-green-800' :
-                                            'bg-blue-100 text-blue-800'
-                                        }`}>{order.status}</span>
-                                    </div>
-                                    {/* Hiển thị ngày nhận hàng ngay ở danh sách để dễ nhìn */}
-                                    <div className="flex justify-between items-end mt-2">
-                                        <span className="text-xs font-semibold bg-gray-100 px-2 py-1 rounded text-gray-600">
-                                            📅 {formatDate(order.delivery.date)}
-                                        </span>
-                                        <div className="text-right font-bold text-luvin-pink">
+                                    Mới nhất
+                                </button>
+                                <button
+                                    onClick={() => setSortMode('urgent')}
+                                    className={`flex-1 py-2 text-xs font-bold rounded transition-all ${
+                                        sortMode === 'urgent' 
+                                        ? 'bg-red-500 text-white shadow-sm' 
+                                        : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                                    }`}
+                                >
+                                    Cần giao gấp 🔥
+                                </button>
+                            </div>
+
+                            <div className="overflow-y-auto flex-grow">
+                                {sortedOrders.map(order => (
+                                    <div 
+                                        key={order.id} 
+                                        onClick={() => setSelectedOrder(order)}
+                                        className={`p-4 border-b cursor-pointer hover:bg-gray-50 transition-colors ${selectedOrder?.id === order.id ? 'bg-pink-50 border-l-4 border-luvin-pink' : ''}`}
+                                    >
+                                        <div className="flex justify-between mb-1">
+                                            <span className="font-bold text-gray-800">{order.id}</span>
+                                            <span className="text-xs text-gray-500">{order.customer.name}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            {/* Hiển thị ngày nhận hàng ngay ở danh sách */}
+                                            <span className={`text-xs font-semibold px-2 py-1 rounded ${
+                                                new Date(order.delivery.date).getTime() - Date.now() < 259200000 
+                                                ? 'bg-red-100 text-red-700' // Sắp đến hạn (dưới 3 ngày) -> Đỏ
+                                                : 'bg-gray-100 text-gray-600'
+                                            }`}>
+                                                📅 {formatDate(order.delivery.date)}
+                                            </span>
+                                            <span className={`font-semibold px-2 py-0.5 rounded text-xs ${
+                                                order.status === 'Chờ thanh toán' ? 'bg-yellow-100 text-yellow-800' :
+                                                order.status === 'Đã giao hàng' ? 'bg-green-100 text-green-800' :
+                                                'bg-blue-100 text-blue-800'
+                                            }`}>{order.status}</span>
+                                        </div>
+                                        <div className="text-right font-bold text-luvin-pink mt-1">
                                             {formatCurrency(order.totalPrice)}
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))}
+                            </div>
                         </div>
         
                         {/* Cột phải: Chi tiết đơn hàng */}
