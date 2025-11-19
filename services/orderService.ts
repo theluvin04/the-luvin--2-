@@ -4,7 +4,7 @@ import { collection, setDoc, doc, getDoc, getDocs, query, orderBy, updateDoc } f
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import type { Order } from '../types';
 
-// Hàm phụ: Upload ảnh (Giữ nguyên để sau này dùng)
+// Hàm phụ: Upload ảnh (Để đó sau này dùng)
 const uploadImageToStorage = async (dataUrl: string, orderId: string, timestamp: number) => {
     try {
         const storageRef = ref(storage, `orders/${orderId}/preview_${timestamp}.png`);
@@ -16,35 +16,34 @@ const uploadImageToStorage = async (dataUrl: string, orderId: string, timestamp:
     }
 };
 
-// 1. Hàm tạo đơn hàng mới (ĐÃ TẮT UPLOAD ĐỂ TRÁNH LỖI TREO)
+// 1. Hàm tạo đơn hàng mới (LƯU Ý: ĐÃ CẬP NHẬT ĐỂ LƯU createdAt)
 export const createOrder = async (order: Omit<Order, 'status'>) => {
     try {
-        // Xử lý ảnh: Bỏ qua upload để tránh lỗi CORS
+        // Tắt upload ảnh tạm thời để tránh lỗi treo
         const itemsWithImages = await Promise.all(order.items.map(async (item) => {
             if (item.previewImageUrl && item.previewImageUrl.startsWith('data:image')) {
-                
-                // --- QUAN TRỌNG: Không upload nữa ---
-                // const cloudUrl = await uploadImageToStorage(item.previewImageUrl, order.id, Date.now());
-                
-                // --- Thay bằng: Trả về rỗng để đơn hàng đi qua luôn ---
+                // Thay vì upload, trả về rỗng để đơn hàng đi qua luôn
                 return { ...item, previewImageUrl: "" }; 
             }
             return item;
         }));
 
-        const finalOrder: Order = {
+        const finalOrder = {
             ...order,
             items: itemsWithImages,
             status: "Chờ thanh toán",
             internalNotes: "",
             isUrgent: false,
-            adminDeadline: ""
+            adminDeadline: "",
+            // --- QUAN TRỌNG: Lưu thời gian tạo chuẩn để Dashboard lọc được ---
+            createdAt: new Date().toISOString()
         };
 
         // Lưu đơn hàng vào Firestore
+        // @ts-ignore
         await setDoc(doc(db, "orders", order.id), finalOrder);
 
-        return { success: true, data: finalOrder };
+        return { success: true, data: finalOrder as Order };
     } catch (error) {
         console.error("Lỗi tạo đơn hàng:", error);
         return { success: false, error };
@@ -63,7 +62,7 @@ export const getOrderById = async (orderId: string): Promise<Order | null> => {
     }
 };
 
-// 3. Hàm lấy toàn bộ danh sách đơn hàng (cho trang Admin)
+// 3. Hàm lấy toàn bộ danh sách đơn hàng
 export const getAllOrders = async (): Promise<Order[]> => {
     try {
         const q = query(collection(db, "orders"), orderBy("id", "desc")); 

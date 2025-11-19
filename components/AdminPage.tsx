@@ -1,4 +1,3 @@
-// components/AdminPage.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { getAllOrders, updateOrder } from '../services/orderService';
 import { getAllParts, addPart, updatePart, deletePart, seedDatabase } from '../services/productService';
@@ -69,8 +68,10 @@ const AdminPage: React.FC = () => {
                 if (role) {
                     setCurrentUser(user);
                     setUserRole(role);
+                    // Chặn quyền truy cập ngay khi đăng nhập
                     if (role === 'warehouse') setActiveTab('orders');
                     else setActiveTab('dashboard');
+                    
                     fetchOrders();
                     if (role === 'admin') fetchProducts();
                 } else {
@@ -87,7 +88,6 @@ const AdminPage: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // Chặn chuyển tab nếu là kho
     const handleSwitchTab = (tab: 'dashboard' | 'orders' | 'products') => {
         if (userRole === 'warehouse' && (tab === 'dashboard' || tab === 'products')) {
             alert("Bạn không có quyền truy cập mục này!");
@@ -155,24 +155,31 @@ const AdminPage: React.FC = () => {
     const formatDate = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleDateString('vi-VN');
     const formatDateTime = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleString('vi-VN');
 
-    // --- SỬA LẠI LOGIC THỐNG KÊ ĐỂ FIX LỖI 0Đ ---
+    // --- LOGIC LỌC NGÀY THÁNG THÔNG MINH (FIX LỖI 0Đ) ---
     const stats = useMemo(() => {
-        const start = new Date(startDate).getTime();
-        const end = new Date(endDate).getTime() + 86400000;
+        const start = new Date(startDate); start.setHours(0,0,0,0);
+        const end = new Date(endDate); end.setHours(23,59,59,999);
+
         const filteredOrders = orders.filter(order => {
-            // Nếu là xem "Toàn bộ", bỏ qua lọc ngày
             if (quickDateFilter === 'all') return true;
 
-            // Cố gắng lấy ngày từ ID hoặc ngày giao hàng
-            let orderTimestamp = Date.now(); // Mặc định là hôm nay nếu không có dữ liệu
-            
-            if (order.id && order.id.length >= 6) {
-                // Thử parse ID (nếu ID là timestamp)
-                const tsFromId = Number(order.id.slice(-6)) * 1000; 
-                 if (!isNaN(tsFromId)) orderTimestamp = tsFromId;
+            let orderDate: Date;
+            // Ưu tiên 1: Lấy ngày tạo chuẩn (nếu có)
+            // @ts-ignore
+            if (order.createdAt) {
+                // @ts-ignore
+                orderDate = new Date(order.createdAt);
+            } 
+            // Ưu tiên 2: Đoán từ ID (nếu là đơn cũ)
+            else if (order.id && order.id.length >= 6 && !isNaN(Number(order.id.slice(-6)))) {
+                orderDate = new Date(Number(order.id.slice(-6)) * 1000);
             }
-            
-            return orderTimestamp >= start && orderTimestamp <= end;
+            // Ưu tiên 3: Nếu không biết, coi như là đơn hôm nay (để hiển thị lên)
+            else {
+                orderDate = new Date(); 
+            }
+
+            return orderDate.getTime() >= start.getTime() && orderDate.getTime() <= end.getTime();
         });
 
         const totalRevenue = filteredOrders.reduce((acc, order) => acc + order.totalPrice, 0);
@@ -183,7 +190,6 @@ const AdminPage: React.FC = () => {
         const totalCostMock = totalRevenue * 0.45; 
         const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
         
-        // Thống kê Charm
         const topCharms = Object.values(filteredOrders.flatMap(order => order.items.flatMap(frame => frame.draggableItems.map(item => item.partId)))
             .reduce((acc, partId) => {
                 const product = products.find(p => p.id === partId);
@@ -194,7 +200,6 @@ const AdminPage: React.FC = () => {
             }, {} as Record<string, { name: string, count: number, type: string }>))
             .sort((a, b) => b.count - a.count).slice(0, 5);
             
-        // Thống kê người bọc
         const packerStats = Object.values(filteredOrders.reduce((acc, order) => {
             if (order.packerEmail) {
                 const email = order.packerEmail;
@@ -298,7 +303,6 @@ const AdminPage: React.FC = () => {
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                              <div className="bg-white shadow rounded-lg p-6"><h3 className="text-lg font-bold text-gray-800 mb-4">🏆 Top 5 Phụ kiện</h3><div className="space-y-3">{stats.topCharms.length > 0 ? stats.topCharms.map((item, idx) => (<div key={idx} className="flex justify-between items-center border-b pb-2 last:border-0"><div className="flex items-center gap-3"><span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${idx === 0 ? 'bg-yellow-400 text-white' : 'bg-gray-200'}`}>{idx + 1}</span><span className="text-sm font-medium">{item.name}</span><span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-500 capitalize">{item.type}</span></div><span className="font-bold text-luvin-pink">{item.count} lần</span></div>)) : <p className="text-gray-500">Chưa có dữ liệu thống kê.</p>}</div></div>
-                             {/* Thống kê nhân viên */}
                              <div className="bg-white shadow rounded-lg p-6">
                                 <h3 className="text-lg font-bold text-gray-800 mb-4">👷 Hiệu suất bọc hàng</h3>
                                 <div className="space-y-3">
@@ -357,7 +361,7 @@ const AdminPage: React.FC = () => {
                     </div>
                 )}
 
-                {/* --- PRODUCTS (CHỈ ADMIN) --- */}
+                {/* --- PRODUCTS (CHỈ ADMIN MỚI THẤY) --- */}
                 {activeTab === 'products' && userRole === 'admin' && (
                     <div>
                         <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">

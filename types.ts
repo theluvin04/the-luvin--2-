@@ -1,5 +1,3 @@
-// types.ts
-
 // Danh sách các trang
 export type Page = 'home' | 'builder' | 'collection' | 'feedback' | 'order-lookup' | 'contact' | 'cart' | 'checkout' | 'order-confirmation' | 'admin';
 
@@ -118,41 +116,15 @@ export interface Order {
   totalPrice: number;
   amountToPay: number;
   
-  // --- MỚI THÊM ---
-  internalNotes?: string; // Ghi chú nội bộ của Admin
-  isUrgent?: boolean;     // Cờ đánh dấu đơn gấp thủ công
-  // ... (các phần trên giữ nguyên)
-
-export interface Order {
-  id: string;
-  status: string;
-  customer: {
-    name: string;
-    phone: string;
-    email: string;
-    address: string;
-  };
-  delivery: {
-    date: string;
-    notes: string;
-  };
-  items: FrameConfig[];
-  addGiftBox: boolean;
-  shipping: {
-    method: 'standard' | 'express' | 'bookship';
-    fee: number;
-  };
-  payment: {
-    method: 'deposit' | 'full';
-  };
-  totalPrice: number;
-  amountToPay: number;
-  
-  // Ghi chú nội bộ & Cờ gấp
+  // Thông tin quản lý Admin
   internalNotes?: string; 
   isUrgent?: boolean;
+  adminDeadline?: string;
   
-  // --- MỚI THÊM: Deadline do Admin tự đặt ---
-  adminDeadline?: string; 
-}
+  // Thông tin bọc hàng (Mới)
+  packerEmail?: string; 
+  packedAt?: string;
+
+  // --- QUAN TRỌNG: Thời gian tạo đơn (để lọc Dashboard) ---
+  createdAt: string; 
 }
