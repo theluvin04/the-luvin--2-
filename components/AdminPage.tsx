@@ -4,7 +4,7 @@ import { getAllOrders, updateOrder } from '../services/orderService';
 import { getAllParts, addPart, updatePart, deletePart, seedDatabase } from '../services/productService';
 import { auth } from '../config/firebase';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'; 
-import { adminQuickOrder } from '../services/orderService'; // Import adminQuickOrder
+// Đã loại bỏ import { adminQuickOrder }
 import type { Order, LegoPart, FrameConfig } from '../types';
 import { LEGO_PARTS, FRAME_OPTIONS, COLLECTION_TEMPLATES } from '../constants'; // Import COLLECTION_TEMPLATES
 
@@ -21,7 +21,7 @@ const getStatusColor = (status: string) => {
     }
 };
 
-// --- CHỨC NĂNG TÍNH GIÁ ĐƠN GIẢN (Cần cho thống kê và adminQuickOrder) ---
+// --- CHỨC NĂNG TÍNH GIÁ ĐƠN GIẢN (Cần cho thống kê và sửa đơn hàng) ---
 const CHARACTER_BASE_PRICE = 10000;
 const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>) => {
     const frame = FRAME_OPTIONS.find(f => f.id === config.frameId) || FRAME_OPTIONS[0];
@@ -162,7 +162,7 @@ const AdminPage: React.FC = () => {
     const [productCategory, setProductCategory] = useState('all');
     
     // State cho Link liên hệ mới
-    const [contactLinkInput, setContactLinkInput] = useState(''); //
+    const [contactLinkInput, setContactLinkInput] = useState(''); 
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -254,21 +254,6 @@ const AdminPage: React.FC = () => {
         }
     };
     
-    // Logic for quick order
-    const handleQuickOrder = async () => { 
-        if (confirm("Xác nhận tạo đơn hàng nhanh (Offline/Mẫu Wedding Day)?")) {
-            setLoading(true);
-            const result = await adminQuickOrder(); // Call the service function
-            setLoading(false);
-            if (result.success) {
-                alert(`Đã tạo đơn hàng nhanh thành công: ${result.data?.id}`);
-                fetchOrders(); // Refresh order list
-            } else {
-                alert("Lỗi tạo đơn hàng nhanh. Vui lòng kiểm tra console.");
-            }
-        }
-    }
-    
     // Logic for removing draggable item (simplifying edit feature)
     const handleRemoveDraggableItem = async (itemId: number) => {
         if (selectedOrder && selectedOrder.items[0] && confirm("Xác nhận xóa vật phẩm này khỏi đơn hàng?")) {
@@ -281,12 +266,18 @@ const AdminPage: React.FC = () => {
             const allPartsMap = products.reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>);
             const newPrice = calculatePrice(updatedItems[0], allPartsMap).totalPrice;
             
+            // Recalculate amountToPay based on the original payment method logic (70% deposit or 100% full)
+            let newAmountToPay = newPrice;
+            if (selectedOrder.payment.method === 'deposit') {
+                newAmountToPay = Math.round(newPrice * 0.7);
+            }
+            
             await handleUpdate(selectedOrder.id, { 
                 items: updatedItems,
                 totalPrice: newPrice, // Update total price
-                amountToPay: newPrice // Simplify: Assume amountToPay is also updated (if same as total)
+                amountToPay: newAmountToPay // Update amountToPay
             }, false); 
-            alert("Đã xóa vật phẩm.");
+            alert("Đã xóa vật phẩm và cập nhật giá thành công.");
             fetchOrders(); // Refresh order list
         }
     }
@@ -385,15 +376,8 @@ const AdminPage: React.FC = () => {
                     </div>
                 </div>
 
-                {/* --- CHỨC NĂNG ADMIN NỘI BỘ --- */}
-                {userRole === 'admin' && (
-                    <div className="mb-6 pt-2 border-b border-gray-200 flex justify-between items-center">
-                        <p className="text-xs font-bold text-gray-400 uppercase">Công cụ nội bộ</p>
-                        <button onClick={handleQuickOrder} className="bg-green-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-green-700 disabled:opacity-50" disabled={loading}>
-                            {loading ? 'Đang tạo...' : '⭐ Tạo Đơn Hàng Nhanh'}
-                        </button>
-                    </div>
-                )}
+                {/* --- CHỨC NĂNG ADMIN NỘI BỘ (ĐÃ BỎ NÚT TẠO ĐƠN HÀNG NHANH) --- */}
+                {/* <div className="mb-6 pt-2 border-b border-gray-200 flex justify-between items-center">...</div> */}
 
 
                 {/* --- DASHBOARD --- */}
