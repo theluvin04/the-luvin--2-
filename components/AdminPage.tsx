@@ -4,9 +4,8 @@ import { getAllOrders, updateOrder } from '../services/orderService';
 import { getAllParts, addPart, updatePart, deletePart, seedDatabase } from '../services/productService';
 import { auth } from '../config/firebase';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'; 
-// Đã loại bỏ import { adminQuickOrder }
-import type { Order, LegoPart, FrameConfig } from '../types';
-import { LEGO_PARTS, FRAME_OPTIONS, COLLECTION_TEMPLATES } from '../constants'; // Import COLLECTION_TEMPLATES
+import type { Order, LegoPart, FrameConfig, LegoCharacterConfig, OutfitColor } from '../types';
+import { LEGO_PARTS, FRAME_OPTIONS, COLLECTION_TEMPLATES } from '../constants'; 
 
 // --- HELPER GLOBALS ---
 const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -40,7 +39,6 @@ const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>)
     });
 
     config.draggableItems.forEach(item => {
-        // Find part, safely handling cases where part is not found (e.g., charm with no price part)
         const part = allParts[item.partId];
         if (part) {
             total += part.price;
@@ -50,7 +48,6 @@ const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>)
     return { totalPrice: total };
 };
 // --- END TÍNH GIÁ ---
-
 
 // --- CẤU HÌNH PHÂN QUYỀN ---
 const USER_ROLES: Record<string, 'admin' | 'warehouse'> = {
@@ -62,12 +59,11 @@ const USER_ROLES: Record<string, 'admin' | 'warehouse'> = {
 
 // --- COMPONENT HIỂN THỊ CHI TIẾT SOẠN HÀNG (PICKING LIST) ---
 const PickingList: React.FC<{ items: FrameConfig[]; allParts: LegoPart[] }> = ({ items, allParts }) => {
-    // Hàm tìm tên sản phẩm theo ID
     const getPartName = (id?: string, type?: string) => {
         if (!id) return "---";
         if (type === 'charm') return "Charm (Ảnh riêng)";
         const part = allParts.find(p => p.id === id);
-        return part ? part.name : id; // Nếu không tìm thấy thì hiện ID
+        return part ? part.name : id; 
     };
 
     const getFrameName = (id: string) => FRAME_OPTIONS.find(f => f.id === id)?.name || id;
@@ -121,64 +117,217 @@ const PickingList: React.FC<{ items: FrameConfig[]; allParts: LegoPart[] }> = ({
     );
 };
 
-// --- Form Sản phẩm (Giữ nguyên) ---
-const ProductForm: React.FC<{ initialData?: LegoPart | null; onSave: (part: LegoPart) => void; onCancel: () => void }> = ({ initialData, onSave, onCancel }) => {
-    const [formData, setFormData] = useState<LegoPart>(initialData || { id: `part_${Date.now()}`, name: '', price: 0, imageUrl: '', type: 'accessory', widthCm: 1, heightCm: 1 });
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => { const { name, value } = e.target; setFormData(prev => ({ ...prev, [name]: name === 'price' || name === 'widthCm' || name === 'heightCm' ? Number(value) : value })); };
-    return ( <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"> <div className="bg-white p-6 rounded-lg shadow-xl w-96 max-h-[90vh] overflow-y-auto"> <h3 className="text-lg font-bold mb-4">{initialData ? 'Sửa sản phẩm' : 'Thêm sản phẩm mới'}</h3> <div className="space-y-3"> <div><label className="block text-xs font-bold text-gray-700">Tên hiển thị</label><input name="name" value={formData.name} onChange={handleChange} className="w-full p-2 border rounded" placeholder="Ví dụ: Tóc xoăn vàng" /></div> <div><label className="block text-xs font-bold text-gray-700">Loại</label> <select name="type" value={formData.type} onChange={handleChange} className="w-full p-2 border rounded"> <option value="hair">Tóc</option><option value="face">Mặt</option><option value="shirt">Áo</option><option value="pants">Quần</option><option value="hat">Mũ</option><option value="accessory">Phụ kiện</option><option value="pet">Thú cưng</option> </select> </div> <div><label className="block text-xs font-bold text-gray-700">Giá tiền (VNĐ)</label><input type="number" name="price" value={formData.price} onChange={handleChange} className="w-full p-2 border rounded" /></div> <div><label className="block text-xs font-bold text-gray-700">Link Ảnh (URL)</label><input name="imageUrl" value={formData.imageUrl} onChange={handleChange} className="w-full p-2 border rounded" />{formData.imageUrl && <img src={formData.imageUrl} alt="Preview" className="mt-2 h-16 object-contain mx-auto border" />}</div> <div className="grid grid-cols-2 gap-2"> <div><label className="block text-xs font-bold text-gray-700">Rộng (cm)</label><input type="number" name="widthCm" value={formData.widthCm} onChange={handleChange} className="w-full p-2 border rounded" step="0.1" /></div> <div><label className="block text-xs font-bold text-gray-700">Cao (cm)</label><input type="number" name="heightCm" value={formData.heightCm} onChange={handleChange} className="w-full p-2 border rounded" step="0.1" /></div> </div> </div> <div className="flex justify-end gap-2 mt-6"><button onClick={onCancel} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Hủy</button><button onClick={() => onSave(formData)} className="px-4 py-2 bg-luvin-pink text-white font-bold rounded hover:opacity-90">Lưu</button></div> </div> </div> );
-};
-
-// --- Helper Component to quickly add Draggable Item ---
-const QuickAddItem: React.FC<{
+// --- Admin Frame Editor Modal (NEW Component for Full Editing) ---
+const AdminFrameEditorModal: React.FC<{
+    order: Order;
     products: LegoPart[];
-    onAddItem: (part: LegoPart) => void;
+    onSave: (newFrameConfig: FrameConfig) => void;
     onClose: () => void;
-}> = ({ products, onAddItem, onClose }) => {
+}> = ({ order, products, onSave, onClose }) => {
+    // We assume there's only one frame config item per order based on context.
+    const initialConfig = order.items[0]; 
+    const [tempConfig, setTempConfig] = useState<FrameConfig>(initialConfig);
+    const allPartsMap = useMemo(() => products.reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>), [products]);
+    const [activeCharIndex, setActiveCharIndex] = useState(0);
+
+    const activeCharacter = tempConfig.characters[activeCharIndex];
+    const { totalPrice } = calculatePrice(tempConfig, allPartsMap);
+
+    // Filter parts for editor
+    const getPartsByType = (type: LegoPart['type']) => LEGO_PARTS[type] || [];
+
+    const handleUpdateConfig = (updates: Partial<FrameConfig>) => {
+        setTempConfig(prev => ({ ...prev, ...updates }));
+    };
+
+    const handleUpdateCharPart = (part: LegoPart, charIndex: number) => {
+        setTempConfig(prev => ({
+            ...prev,
+            characters: prev.characters.map((char, index) => {
+                if (index !== charIndex) return char;
+                
+                const newChar = { ...char, [part.type]: part };
+                if (part.type === 'shirt') newChar.selectedShirtColor = part.colors?.[0];
+                if (part.type === 'pants') newChar.selectedPantsColor = part.colors?.[0];
+                
+                // Logic Headwear: selecting hair removes hat, selecting hat removes hair
+                if (part.type === 'hair') newChar.hat = undefined;
+                if (part.type === 'hat') newChar.hair = undefined;
+
+                return newChar;
+            }),
+        }));
+    };
     
-    // Filter out only accessories and pets
-    const availableItems = products.filter(p => p.type === 'accessory' || p.type === 'pet');
+    // Simplifies for demo: just toggling default color for shirt/pants
+    const handleToggleColor = (colorType: 'shirt' | 'pants', charIndex: number) => {
+        setTempConfig(prev => ({
+            ...prev,
+            characters: prev.characters.map((char, index) => {
+                if (index !== charIndex) return char;
+                const part = char[colorType];
+                const currentColor = colorType === 'shirt' ? char.selectedShirtColor : char.selectedPantsColor;
+                
+                if (part?.colors && part.colors.length > 1) {
+                    const currentIndex = part.colors.findIndex(c => c.name === currentColor?.name);
+                    const nextIndex = (currentIndex + 1) % part.colors.length;
+                    
+                    if (colorType === 'shirt') return { ...char, selectedShirtColor: part.colors[nextIndex] };
+                    if (colorType === 'pants') return { ...char, selectedPantsColor: part.colors[nextIndex] };
+                }
+                return char;
+            }),
+        }));
+    };
     
-    // Group them by type for cleaner display
-    const groupedItems = availableItems.reduce((acc, item) => {
-        const type = item.type;
-        acc[type] = acc[type] || [];
-        acc[type].push(item);
-        return acc;
-    }, {} as Record<string, LegoPart[]>);
+    const handleAddChar = () => {
+        const newId = Date.now();
+        const newCharacter: LegoCharacterConfig = {
+            id: newId, 
+            shirt: LEGO_PARTS.shirt[0], 
+            pants: LEGO_PARTS.pants[0],
+            face: LEGO_PARTS.face[0], 
+            x: 50, y: 75, rotation: 0, scale: 1,
+            selectedShirtColor: LEGO_PARTS.shirt[0].colors?.[0],
+            selectedPantsColor: LEGO_PARTS.pants[0].colors?.[0],
+        };
+        setTempConfig(prev => ({ ...prev, characters: [...prev.characters, newCharacter] }));
+        setActiveCharIndex(tempConfig.characters.length);
+    }
+    
+    const handleRemoveChar = (charId: number) => {
+        setTempConfig(prev => ({ ...prev, characters: prev.characters.filter(c => c.id !== charId) }));
+        setActiveCharIndex(0);
+    }
+
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-                <h3 className="text-xl font-bold mb-4 border-b pb-2">➕ Thêm vật phẩm rời</h3>
+            <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] grid grid-cols-12 gap-6">
                 
-                {Object.keys(groupedItems).map(type => (
-                    <div key={type} className="mb-4">
-                        <h4 className="font-bold text-gray-700 text-sm capitalize mb-2">{type === 'accessory' ? 'Phụ kiện' : 'Thú cưng'}:</h4>
-                        <div className="grid grid-cols-4 gap-2">
-                            {groupedItems[type].map(part => (
-                                <button
-                                    key={part.id}
-                                    onClick={() => { onAddItem(part); onClose(); }}
-                                    className="border rounded-lg p-2 text-center text-xs hover:bg-gray-100 transition-colors"
-                                >
-                                    <img src={part.imageUrl} alt={part.name} className="w-10 h-10 object-contain mx-auto mb-1" />
-                                    <span className="font-medium truncate block">{part.name}</span>
-                                </button>
+                {/* Frame Preview (Mini) */}
+                <div className="col-span-12 lg:col-span-4 bg-gray-50 p-4 rounded-lg flex flex-col">
+                    <h3 className="font-bold text-sm mb-2 border-b pb-1">Xem trước & Giá:</h3>
+                    <div className="flex-grow flex items-center justify-center h-48 overflow-hidden bg-white/80 rounded-md">
+                         {/* We can't render FramePreview easily here, so we use placeholder and display current config for confirmation */}
+                         <p className="text-gray-400 text-xs text-center">Ảnh xem trước sẽ được cập nhật sau khi lưu.<br/> (Dữ liệu đang thay đổi)</p>
+                    </div>
+                    <div className="mt-4 border-t pt-2">
+                         <p className="text-sm font-bold flex justify-between">Giá mới (Tạm tính): <span className="text-luvin-pink">{formatCurrency(totalPrice)}</span></p>
+                    </div>
+                </div>
+
+                {/* Editing Controls */}
+                <div className="col-span-12 lg:col-span-8 space-y-4 max-h-[80vh] overflow-y-auto pr-4">
+                    <h3 className="text-xl font-bold mb-4 border-b pb-2">🛠️ CHỈNH SỬA TOÀN DIỆN ĐƠN HÀNG {order.id}</h3>
+
+                    {/* Frame Size */}
+                    <div className="p-3 border rounded-lg">
+                         <h4 className="font-bold text-sm mb-2">Kích thước Khung:</h4>
+                         <select 
+                            value={tempConfig.frameId} 
+                            onChange={e => handleUpdateConfig({ frameId: e.target.value })}
+                            className="w-full p-2 border rounded text-sm bg-white"
+                         >
+                            {FRAME_OPTIONS.map(f => (
+                                <option key={f.id} value={f.id}>{f.name} ({formatCurrency(f.price)})</option>
+                            ))}
+                         </select>
+                    </div>
+                    
+                    {/* Character Selection Tabs */}
+                    <div className="p-3 border rounded-lg">
+                        <h4 className="font-bold text-sm mb-2 flex justify-between items-center">
+                            <span>Nhân Vật:</span>
+                            {tempConfig.characters.length < 4 && <button onClick={handleAddChar} className="text-green-600 text-xs font-bold">+ Thêm NV</button>}
+                        </h4>
+                        <div className="flex flex-wrap gap-2 mb-3">
+                            {tempConfig.characters.map((char, index) => (
+                                <div key={char.id} className="relative">
+                                    <button 
+                                        onClick={() => setActiveCharIndex(index)} 
+                                        className={`px-3 py-1 text-xs rounded font-bold ${activeCharIndex === index ? 'bg-luvin-pink text-white' : 'bg-gray-200 text-gray-800'}`}
+                                    >
+                                        NV {index + 1}
+                                    </button>
+                                    <button onClick={() => handleRemoveChar(char.id)} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full h-4 w-4 flex items-center justify-center text-xs font-bold">
+                                        &times;
+                                    </button>
+                                </div>
                             ))}
                         </div>
+                        
+                        {/* Part Editor */}
+                        {activeCharacter && (
+                            <div className="border-t pt-3 space-y-3">
+                                {(['face', 'hair', 'hat', 'shirt', 'pants'] as LegoPart['type'][]).map(type => (
+                                    <div key={type}>
+                                        <h5 className="font-semibold text-xs capitalize mb-1 mt-2 flex justify-between">
+                                            {type === 'hair' && activeCharacter.hat ? 'Tóc (Đã chọn Mũ)' : (type === 'hat' && activeCharacter.hair) ? 'Mũ (Đã chọn Tóc)' : type}
+                                            {/* Quick Color Toggle for Shirt/Pants */}
+                                            {(type === 'shirt' && activeCharacter.shirt) && activeCharacter.shirt.colors && (
+                                                <button onClick={() => handleToggleColor('shirt', activeCharIndex)} className="text-xs text-blue-500 underline">Đổi màu ({activeCharacter.selectedShirtColor?.name})</button>
+                                            )}
+                                            {(type === 'pants' && activeCharacter.pants) && activeCharacter.pants.colors && (
+                                                <button onClick={() => handleToggleColor('pants', activeCharIndex)} className="text-xs text-blue-500 underline">Đổi màu ({activeCharacter.selectedPantsColor?.name})</button>
+                                            )}
+                                        </h5>
+                                        <select
+                                            value={activeCharacter[type]?.id || ''}
+                                            onChange={e => {
+                                                const selectedId = e.target.value;
+                                                const selectedPart = getPartsByType(type).find(p => p.id === selectedId);
+                                                handleUpdateCharPart(selectedPart || {} as LegoPart, activeCharIndex);
+                                            }}
+                                            className="w-full p-2 border rounded text-sm bg-white"
+                                            disabled={
+                                                (type === 'hair' && activeCharacter.hat) || (type === 'hat' && activeCharacter.hair) // Disable if conflicting part is selected
+                                            }
+                                        >
+                                            <option value="">{type === 'hat' || type === 'hair' ? '--- Không chọn ---' : '--- Chọn ---'}</option>
+                                            {getPartsByType(type).map(part => (
+                                                <option key={part.id} value={part.id}>{part.name} ({formatCurrency(part.price)})</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ))}
+                                {/* Custom Print Price Editor */}
+                                <div className="mt-3 pt-2 border-t border-gray-100">
+                                    <h5 className="font-semibold text-xs mb-1">In Yêu Cầu (Custom Print Price):</h5>
+                                    <input 
+                                        type="number" 
+                                        value={activeCharacter.customPrintPrice || 0}
+                                        onChange={e => {
+                                            const price = Number(e.target.value);
+                                            setTempConfig(prev => ({
+                                                ...prev, characters: prev.characters.map((char, index) => index === activeCharIndex ? { ...char, customPrintPrice: price } : char)
+                                            }));
+                                        }}
+                                        className="w-full p-2 border rounded text-sm bg-white"
+                                        placeholder="0"
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
-                ))}
+                </div>
 
-                <button onClick={onClose} className="mt-4 w-full py-2 bg-gray-200 rounded-lg text-sm font-bold hover:bg-gray-300">
-                    Hủy
-                </button>
+                {/* Action Buttons */}
+                <div className="col-span-12 flex justify-end gap-3 border-t pt-4">
+                    <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-bold">Hủy</button>
+                    <button 
+                        onClick={() => onSave(tempConfig)} 
+                        className="px-6 py-2 bg-luvin-pink text-gray-800 font-bold rounded-lg hover:opacity-90 transition-opacity"
+                    >
+                        LƯU & CẬP NHẬT GIÁ
+                    </button>
+                </div>
             </div>
         </div>
     );
-};
-// --- END QuickAddItem ---
+}
 
-
+// --- AdminPage Component ---
 const AdminPage: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [userRole, setUserRole] = useState<'admin' | 'warehouse' | null>(null);
@@ -214,7 +363,8 @@ const AdminPage: React.FC = () => {
     
     // State cho Link liên hệ và Add Item
     const [contactLinkInput, setContactLinkInput] = useState(''); 
-    const [isAddingItem, setIsAddingItem] = useState(false); // NEW STATE
+    const [isAddingItem, setIsAddingItem] = useState(false); 
+    const [isEditingFrame, setIsEditingFrame] = useState(false); // NEW STATE for Full Editor
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -226,7 +376,7 @@ const AdminPage: React.FC = () => {
                     if (role === 'warehouse') setActiveTab('orders');
                     else setActiveTab('dashboard');
                     fetchOrders();
-                    fetchProducts(); // Luôn tải sản phẩm để hiển thị tên trong Picking List
+                    fetchProducts(); 
                 } else {
                     alert("Tài khoản này chưa được cấp quyền truy cập!");
                     signOut(auth);
@@ -256,7 +406,7 @@ const AdminPage: React.FC = () => {
         if (selectedOrder) {
             setNoteInput(selectedOrder.internalNotes || '');
             setAdminDeadlineInput(selectedOrder.adminDeadline || '');
-            setContactLinkInput(selectedOrder.contactLink || ''); // Load contact link
+            setContactLinkInput(selectedOrder.contactLink || ''); 
         }
     }, [selectedOrder]);
 
@@ -274,6 +424,43 @@ const AdminPage: React.FC = () => {
     const handleSaveProduct = async (part: LegoPart) => { setIsEditingProduct(false); if (editingPart) await updatePart(part.id, part); else await addPart(part); fetchProducts(); setEditingPart(null); };
     const handleDeleteProduct = async (id: string) => { if (confirm("Xóa?")) { await deletePart(id); fetchProducts(); } };
     
+    // --- CORE UPDATE LOGIC ---
+    const handleRecalculateAndSave = async (orderId: string, updatedItems: FrameConfig[], showMsg = true) => {
+        const allPartsMap = products.reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>);
+        const currentOrder = orders.find(o => o.id === orderId);
+        
+        if (!currentOrder || updatedItems.length === 0) return;
+
+        // 1. Calculate new subtotal (total price before shipping/giftbox)
+        const newSubtotal = calculatePrice(updatedItems[0], allPartsMap).totalPrice;
+        
+        // 2. Get fixed fees from the original order
+        const SHIPPING_FEE = currentOrder.shipping.fee;
+        const GIFT_BOX_PRICE = 30000; 
+        const giftBoxFee = currentOrder.addGiftBox ? GIFT_BOX_PRICE : 0;
+        
+        const newTotal = newSubtotal + SHIPPING_FEE + giftBoxFee;
+
+        // 3. Recalculate amountToPay based on the original payment method logic
+        let newAmountToPay = newTotal;
+        if (currentOrder.payment.method === 'deposit') {
+            newAmountToPay = Math.round(newTotal * 0.7);
+        }
+        
+        const updates = { 
+            items: updatedItems,
+            totalPrice: newTotal, 
+            amountToPay: newAmountToPay
+        };
+
+        const success = await updateOrder(orderId, updates);
+        if (success) {
+            setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o));
+            setSelectedOrder(prev => prev ? { ...prev, ...updates } : null); 
+            if (showMsg) alert("Đã cập nhật đơn hàng và giá thành công.");
+        }
+    }
+    
     const handleUpdate = async (orderId: string, updates: Partial<Order>, showMsg = true) => { 
         const success = await updateOrder(orderId, updates); 
         if (success) { 
@@ -282,6 +469,13 @@ const AdminPage: React.FC = () => {
             if (showMsg) alert("Đã lưu!"); 
         } 
     };
+    // --- END CORE UPDATE LOGIC ---
+    
+    const handleSaveFullFrame = (newFrameConfig: FrameConfig) => {
+        if (!selectedOrder) return;
+        setIsEditingFrame(false);
+        handleRecalculateAndSave(selectedOrder.id, [newFrameConfig]);
+    }
     
     const handleSaveAdminInfo = () => { 
         if (selectedOrder) { 
@@ -289,7 +483,7 @@ const AdminPage: React.FC = () => {
                 internalNotes: noteInput, 
                 adminDeadline: adminDeadlineInput, 
                 contactLink: contactLinkInput 
-            }); // Save contact link
+            }); 
         } 
     };
 
@@ -306,7 +500,7 @@ const AdminPage: React.FC = () => {
         }
     };
     
-    // --- Logic for ADDING draggable item and PRICE RECALCULATION (MỚI) ---
+    // Logic for adding draggable item
     const handleAddDraggableItem = async (part: LegoPart) => {
         if (!selectedOrder || !selectedOrder.items[0]) return;
         
@@ -326,34 +520,10 @@ const AdminPage: React.FC = () => {
             draggableItems: [...frame.draggableItems, newItem]
         }));
         
-        const allPartsMap = products.reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>);
-        
-        // Calculate new subtotal (total price before shipping/giftbox)
-        const newSubtotal = calculatePrice(updatedItems[0], allPartsMap).totalPrice;
-        
-        const SHIPPING_FEE = selectedOrder.shipping.fee;
-        const GIFT_BOX_PRICE = 30000; // Hardcode gift box price for admin recalculation
-        const giftBoxFee = selectedOrder.addGiftBox ? GIFT_BOX_PRICE : 0;
-        
-        const newTotal = newSubtotal + SHIPPING_FEE + giftBoxFee;
-
-        // Recalculate amountToPay based on the original payment method logic
-        let newAmountToPay = newTotal;
-        if (selectedOrder.payment.method === 'deposit') {
-            newAmountToPay = Math.round(newTotal * 0.7);
-        }
-        
-        await handleUpdate(selectedOrder.id, { 
-            items: updatedItems,
-            totalPrice: newTotal,
-            amountToPay: newAmountToPay 
-        }, false); 
-        
-        alert(`Đã thêm vật phẩm ${part.name} và cập nhật giá thành công.`);
-        fetchOrders(); 
+        handleRecalculateAndSave(selectedOrder.id, updatedItems);
     }
     
-    // Logic for removing draggable item (reusing price recalculation logic)
+    // Logic for removing draggable item
     const handleRemoveDraggableItem = async (itemId: number) => {
         if (selectedOrder && selectedOrder.items[0] && confirm("Xác nhận xóa vật phẩm này khỏi đơn hàng?")) {
             const updatedItems = selectedOrder.items.map(frame => ({
@@ -361,30 +531,7 @@ const AdminPage: React.FC = () => {
                 draggableItems: frame.draggableItems.filter(item => item.id !== itemId)
             }));
             
-            const allPartsMap = products.reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>);
-            
-            // Calculate new subtotal (total price before shipping/giftbox)
-            const newSubtotal = calculatePrice(updatedItems[0], allPartsMap).totalPrice;
-            
-            const SHIPPING_FEE = selectedOrder.shipping.fee;
-            const GIFT_BOX_PRICE = 30000; 
-            const giftBoxFee = selectedOrder.addGiftBox ? GIFT_BOX_PRICE : 0;
-            
-            const newTotal = newSubtotal + SHIPPING_FEE + giftBoxFee;
-
-            // Recalculate amountToPay based on the original payment method logic
-            let newAmountToPay = newTotal;
-            if (selectedOrder.payment.method === 'deposit') {
-                newAmountToPay = Math.round(newTotal * 0.7);
-            }
-            
-            await updateOrder(selectedOrder.id, { 
-                items: updatedItems,
-                totalPrice: newTotal, 
-                amountToPay: newAmountToPay
-            });
-            alert("Đã xóa vật phẩm và cập nhật giá thành công.");
-            fetchOrders(); 
+            handleRecalculateAndSave(selectedOrder.id, updatedItems);
         }
     }
 
@@ -423,7 +570,7 @@ const AdminPage: React.FC = () => {
             return acc;
         }, {} as Record<'accessory' | 'pet' | 'charm', number>);
         
-        // --- MỚI: Thống kê Bán chạy nhất ---
+        // --- MỚI: Thống kê Bán chạy nhất (Toàn bộ bộ phận) ---
         const salesCounts = filteredOrders.reduce((acc, order) => {
             order.items.forEach(frame => {
                 // Count character parts
@@ -437,6 +584,8 @@ const AdminPage: React.FC = () => {
                 frame.draggableItems.forEach(item => {
                     if (item.partId) acc[item.partId] = (acc[item.partId] || 0) + 1;
                 });
+                // Count Frame ID
+                acc[frame.frameId] = (acc[frame.frameId] || 0) + 1;
             });
             return acc;
         }, {} as Record<string, number>);
@@ -444,9 +593,13 @@ const AdminPage: React.FC = () => {
         let topSeller = { name: "N/A", count: 0 };
         for (const partId in salesCounts) {
             if (salesCounts[partId] > topSeller.count) {
-                const part = allPartsMap[partId];
+                const part = allPartsMap[partId] || FRAME_OPTIONS.find(f => f.id === partId);
+                const name = part 
+                    ? (part as LegoPart).name || (part as any).name // Handle LegoPart or FrameOption structure
+                    : (partId.startsWith('charm') ? 'Charm (Ảnh riêng)' : partId);
+
                 topSeller = {
-                    name: part ? part.name : (partId.startsWith('charm') ? 'Charm (Ảnh riêng)' : partId),
+                    name: name,
                     count: salesCounts[partId]
                 };
             }
@@ -540,16 +693,16 @@ const AdminPage: React.FC = () => {
                         
                         {/* Thống kê Bán chạy nhất */}
                         <div className="border rounded-xl p-6">
-                            <h3 className="text-sm font-bold uppercase text-gray-500 mb-4">📊 THỐNG KÊ BÁN CHẠY NHẤT</h3>
+                            <h3 className="text-sm font-bold uppercase text-gray-500 mb-4">📊 THỐNG KÊ CHI TIẾT SẢN PHẨM</h3>
                             <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg mb-4">
-                                <p className="text-xs text-gray-700 font-semibold">Sản phẩm được chọn nhiều nhất:</p>
+                                <p className="text-xs text-gray-700 font-semibold">SẢN PHẨM BÁN CHẠY NHẤT:</p>
                                 <p className="text-lg font-bold text-black mt-1">
-                                    {stats.topSeller.name} ({stats.topSeller.count} lần)
+                                    {stats.topSeller.name} ({stats.topSeller.count} lần được chọn)
                                 </p>
                             </div>
                             
                             {/* Thống kê Charm/Phụ kiện */}
-                            <h3 className="text-sm font-bold uppercase text-gray-500 mb-4 mt-8">TỔNG VẬT PHẨM TRANG TRÍ (ĐÃ BÁN)</h3>
+                            <h3 className="text-sm font-bold uppercase text-gray-500 mb-4 mt-8">TỔNG VẬT PHẨM RỜI (ĐÃ BÁN)</h3>
                             <div className="grid grid-cols-3 gap-4 text-center">
                                 <div className="p-3 bg-gray-100 rounded-lg">
                                     <p className="text-xs text-gray-500">Phụ kiện (Accessory)</p>
@@ -697,7 +850,14 @@ const AdminPage: React.FC = () => {
                                         </div>
                                         {/* ẢNH SẢN PHẨM */}
                                         <div>
-                                            <h3 className="font-bold border-b pb-2 mb-3">Ảnh thiết kế</h3>
+                                            <h3 className="font-bold border-b pb-2 mb-3 flex justify-between items-center">
+                                                <span>Ảnh thiết kế</span>
+                                                {userRole === 'admin' && (
+                                                    <button onClick={() => setIsEditingFrame(true)} className="text-xs font-bold text-blue-600 underline hover:text-blue-700">
+                                                        Sửa chi tiết
+                                                    </button>
+                                                )}
+                                            </h3>
                                             <div className="bg-gray-100 rounded-lg p-2 flex items-center justify-center min-h-[150px]">
                                                 {selectedOrder.items[0]?.previewImageUrl ? (
                                                     <img src={selectedOrder.items[0].previewImageUrl} alt="Design" className="max-h-48 object-contain shadow-sm bg-white" />
@@ -781,6 +941,7 @@ const AdminPage: React.FC = () => {
                     </div>
                 )}
 
+                {/* Modals */}
                 {isEditingProduct && <ProductForm initialData={editingPart} onSave={handleSaveProduct} onCancel={() => setIsEditingProduct(false)} />}
                 {loading && <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50"><div className="text-black font-bold animate-pulse">Đang xử lý...</div></div>}
                 
@@ -790,6 +951,16 @@ const AdminPage: React.FC = () => {
                         products={products}
                         onAddItem={handleAddDraggableItem}
                         onClose={() => setIsAddingItem(false)}
+                    />
+                )}
+                
+                {/* Full Frame Editor Modal */}
+                {isEditingFrame && userRole === 'admin' && selectedOrder && (
+                    <AdminFrameEditorModal
+                        order={selectedOrder}
+                        products={products}
+                        onSave={handleSaveFullFrame}
+                        onClose={() => setIsEditingFrame(false)}
                     />
                 )}
             </div>
