@@ -422,7 +422,36 @@ const AdminPage: React.FC = () => {
             });
             return acc;
         }, {} as Record<'accessory' | 'pet' | 'charm', number>);
-        // --- END Thống kê Charm/Phụ kiện ---
+        
+        // --- MỚI: Thống kê Bán chạy nhất ---
+        const salesCounts = filteredOrders.reduce((acc, order) => {
+            order.items.forEach(frame => {
+                // Count character parts
+                frame.characters.forEach(char => {
+                    const partsToCheck = [char.hair, char.hat, char.face, char.shirt, char.pants];
+                    partsToCheck.forEach(part => {
+                        if (part?.id) acc[part.id] = (acc[part.id] || 0) + 1;
+                    });
+                });
+                // Count draggable items
+                frame.draggableItems.forEach(item => {
+                    if (item.partId) acc[item.partId] = (acc[item.partId] || 0) + 1;
+                });
+            });
+            return acc;
+        }, {} as Record<string, number>);
+
+        let topSeller = { name: "N/A", count: 0 };
+        for (const partId in salesCounts) {
+            if (salesCounts[partId] > topSeller.count) {
+                const part = allPartsMap[partId];
+                topSeller = {
+                    name: part ? part.name : (partId.startsWith('charm') ? 'Charm (Ảnh riêng)' : partId),
+                    count: salesCounts[partId]
+                };
+            }
+        }
+        // --- END Thống kê Bán chạy nhất ---
         
         const packerStats = Object.values(filteredOrders.reduce((acc, order) => {
             if (order.packerEmail) {
@@ -434,7 +463,7 @@ const AdminPage: React.FC = () => {
             return acc;
         }, {} as Record<string, { email: string, count: number, revenue: number }>)).sort((a, b) => b.count - a.count);
 
-        return { totalRevenue, totalOrders, pendingOrders, urgentOrders, packerStats, itemCounts };
+        return { totalRevenue, totalOrders, pendingOrders, urgentOrders, packerStats, itemCounts, topSeller };
     }, [orders, startDate, endDate, quickDateFilter, products]);
 
     const filteredProducts = useMemo(() => {
@@ -482,10 +511,6 @@ const AdminPage: React.FC = () => {
                     </div>
                 </div>
 
-                {/* --- CHỨC NĂNG ADMIN NỘI BỘ (ĐÃ BỎ NÚT TẠO ĐƠN HÀNG NHANH) --- */}
-                {/* Đã loại bỏ phần này theo yêu cầu */}
-
-
                 {/* --- DASHBOARD --- */}
                 {activeTab === 'dashboard' && userRole === 'admin' && (
                     <div className="space-y-8">
@@ -513,9 +538,18 @@ const AdminPage: React.FC = () => {
                             <div className="p-4 border rounded-xl bg-red-50 border-red-100"><p className="text-red-600 text-xs uppercase font-bold mb-1">Gấp / Ưu tiên</p><p className="text-2xl font-bold text-red-600">{stats.urgentOrders}</p></div>
                         </div>
                         
-                        {/* Thống kê Charm/Phụ kiện */}
+                        {/* Thống kê Bán chạy nhất */}
                         <div className="border rounded-xl p-6">
-                            <h3 className="text-sm font-bold uppercase text-gray-500 mb-4">Thống kê vật phẩm trang trí (đã bán)</h3>
+                            <h3 className="text-sm font-bold uppercase text-gray-500 mb-4">📊 THỐNG KÊ BÁN CHẠY NHẤT</h3>
+                            <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg mb-4">
+                                <p className="text-xs text-gray-700 font-semibold">Sản phẩm được chọn nhiều nhất:</p>
+                                <p className="text-lg font-bold text-black mt-1">
+                                    {stats.topSeller.name} ({stats.topSeller.count} lần)
+                                </p>
+                            </div>
+                            
+                            {/* Thống kê Charm/Phụ kiện */}
+                            <h3 className="text-sm font-bold uppercase text-gray-500 mb-4 mt-8">TỔNG VẬT PHẨM TRANG TRÍ (ĐÃ BÁN)</h3>
                             <div className="grid grid-cols-3 gap-4 text-center">
                                 <div className="p-3 bg-gray-100 rounded-lg">
                                     <p className="text-xs text-gray-500">Phụ kiện (Accessory)</p>
