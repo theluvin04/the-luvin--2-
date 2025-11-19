@@ -128,6 +128,57 @@ const ProductForm: React.FC<{ initialData?: LegoPart | null; onSave: (part: Lego
     return ( <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"> <div className="bg-white p-6 rounded-lg shadow-xl w-96 max-h-[90vh] overflow-y-auto"> <h3 className="text-lg font-bold mb-4">{initialData ? 'Sửa sản phẩm' : 'Thêm sản phẩm mới'}</h3> <div className="space-y-3"> <div><label className="block text-xs font-bold text-gray-700">Tên hiển thị</label><input name="name" value={formData.name} onChange={handleChange} className="w-full p-2 border rounded" placeholder="Ví dụ: Tóc xoăn vàng" /></div> <div><label className="block text-xs font-bold text-gray-700">Loại</label> <select name="type" value={formData.type} onChange={handleChange} className="w-full p-2 border rounded"> <option value="hair">Tóc</option><option value="face">Mặt</option><option value="shirt">Áo</option><option value="pants">Quần</option><option value="hat">Mũ</option><option value="accessory">Phụ kiện</option><option value="pet">Thú cưng</option> </select> </div> <div><label className="block text-xs font-bold text-gray-700">Giá tiền (VNĐ)</label><input type="number" name="price" value={formData.price} onChange={handleChange} className="w-full p-2 border rounded" /></div> <div><label className="block text-xs font-bold text-gray-700">Link Ảnh (URL)</label><input name="imageUrl" value={formData.imageUrl} onChange={handleChange} className="w-full p-2 border rounded" />{formData.imageUrl && <img src={formData.imageUrl} alt="Preview" className="mt-2 h-16 object-contain mx-auto border" />}</div> <div className="grid grid-cols-2 gap-2"> <div><label className="block text-xs font-bold text-gray-700">Rộng (cm)</label><input type="number" name="widthCm" value={formData.widthCm} onChange={handleChange} className="w-full p-2 border rounded" step="0.1" /></div> <div><label className="block text-xs font-bold text-gray-700">Cao (cm)</label><input type="number" name="heightCm" value={formData.heightCm} onChange={handleChange} className="w-full p-2 border rounded" step="0.1" /></div> </div> </div> <div className="flex justify-end gap-2 mt-6"><button onClick={onCancel} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Hủy</button><button onClick={() => onSave(formData)} className="px-4 py-2 bg-luvin-pink text-white font-bold rounded hover:opacity-90">Lưu</button></div> </div> </div> );
 };
 
+// --- Helper Component to quickly add Draggable Item ---
+const QuickAddItem: React.FC<{
+    products: LegoPart[];
+    onAddItem: (part: LegoPart) => void;
+    onClose: () => void;
+}> = ({ products, onAddItem, onClose }) => {
+    
+    // Filter out only accessories and pets
+    const availableItems = products.filter(p => p.type === 'accessory' || p.type === 'pet');
+    
+    // Group them by type for cleaner display
+    const groupedItems = availableItems.reduce((acc, item) => {
+        const type = item.type;
+        acc[type] = acc[type] || [];
+        acc[type].push(item);
+        return acc;
+    }, {} as Record<string, LegoPart[]>);
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                <h3 className="text-xl font-bold mb-4 border-b pb-2">➕ Thêm vật phẩm rời</h3>
+                
+                {Object.keys(groupedItems).map(type => (
+                    <div key={type} className="mb-4">
+                        <h4 className="font-bold text-gray-700 text-sm capitalize mb-2">{type === 'accessory' ? 'Phụ kiện' : 'Thú cưng'}:</h4>
+                        <div className="grid grid-cols-4 gap-2">
+                            {groupedItems[type].map(part => (
+                                <button
+                                    key={part.id}
+                                    onClick={() => { onAddItem(part); onClose(); }}
+                                    className="border rounded-lg p-2 text-center text-xs hover:bg-gray-100 transition-colors"
+                                >
+                                    <img src={part.imageUrl} alt={part.name} className="w-10 h-10 object-contain mx-auto mb-1" />
+                                    <span className="font-medium truncate block">{part.name}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+
+                <button onClick={onClose} className="mt-4 w-full py-2 bg-gray-200 rounded-lg text-sm font-bold hover:bg-gray-300">
+                    Hủy
+                </button>
+            </div>
+        </div>
+    );
+};
+// --- END QuickAddItem ---
+
+
 const AdminPage: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [userRole, setUserRole] = useState<'admin' | 'warehouse' | null>(null);
@@ -161,8 +212,9 @@ const AdminPage: React.FC = () => {
     const [productSearch, setProductSearch] = useState('');
     const [productCategory, setProductCategory] = useState('all');
     
-    // State cho Link liên hệ mới
+    // State cho Link liên hệ và Add Item
     const [contactLinkInput, setContactLinkInput] = useState(''); 
+    const [isAddingItem, setIsAddingItem] = useState(false); // NEW STATE
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -254,7 +306,54 @@ const AdminPage: React.FC = () => {
         }
     };
     
-    // Logic for removing draggable item (simplifying edit feature)
+    // --- Logic for ADDING draggable item and PRICE RECALCULATION (MỚI) ---
+    const handleAddDraggableItem = async (part: LegoPart) => {
+        if (!selectedOrder || !selectedOrder.items[0]) return;
+        
+        const newId = Date.now();
+        const newItem = {
+            id: newId, 
+            partId: part.id, 
+            type: part.type as 'accessory' | 'pet' | 'charm', 
+            x: 50 + (Math.random() - 0.5) * 10, 
+            y: 50 + (Math.random() - 0.5) * 10,
+            rotation: 0, 
+            scale: 1, 
+        };
+
+        const updatedItems = selectedOrder.items.map(frame => ({
+            ...frame,
+            draggableItems: [...frame.draggableItems, newItem]
+        }));
+        
+        const allPartsMap = products.reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>);
+        
+        // Calculate new subtotal (total price before shipping/giftbox)
+        const newSubtotal = calculatePrice(updatedItems[0], allPartsMap).totalPrice;
+        
+        const SHIPPING_FEE = selectedOrder.shipping.fee;
+        const GIFT_BOX_PRICE = 30000; // Hardcode gift box price for admin recalculation
+        const giftBoxFee = selectedOrder.addGiftBox ? GIFT_BOX_PRICE : 0;
+        
+        const newTotal = newSubtotal + SHIPPING_FEE + giftBoxFee;
+
+        // Recalculate amountToPay based on the original payment method logic
+        let newAmountToPay = newTotal;
+        if (selectedOrder.payment.method === 'deposit') {
+            newAmountToPay = Math.round(newTotal * 0.7);
+        }
+        
+        await handleUpdate(selectedOrder.id, { 
+            items: updatedItems,
+            totalPrice: newTotal,
+            amountToPay: newAmountToPay 
+        }, false); 
+        
+        alert(`Đã thêm vật phẩm ${part.name} và cập nhật giá thành công.`);
+        fetchOrders(); 
+    }
+    
+    // Logic for removing draggable item (reusing price recalculation logic)
     const handleRemoveDraggableItem = async (itemId: number) => {
         if (selectedOrder && selectedOrder.items[0] && confirm("Xác nhận xóa vật phẩm này khỏi đơn hàng?")) {
             const updatedItems = selectedOrder.items.map(frame => ({
@@ -262,23 +361,30 @@ const AdminPage: React.FC = () => {
                 draggableItems: frame.draggableItems.filter(item => item.id !== itemId)
             }));
             
-            // Re-calculate price (assumes only one frame per order for now, which is true for this app)
             const allPartsMap = products.reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>);
-            const newPrice = calculatePrice(updatedItems[0], allPartsMap).totalPrice;
             
-            // Recalculate amountToPay based on the original payment method logic (70% deposit or 100% full)
-            let newAmountToPay = newPrice;
+            // Calculate new subtotal (total price before shipping/giftbox)
+            const newSubtotal = calculatePrice(updatedItems[0], allPartsMap).totalPrice;
+            
+            const SHIPPING_FEE = selectedOrder.shipping.fee;
+            const GIFT_BOX_PRICE = 30000; 
+            const giftBoxFee = selectedOrder.addGiftBox ? GIFT_BOX_PRICE : 0;
+            
+            const newTotal = newSubtotal + SHIPPING_FEE + giftBoxFee;
+
+            // Recalculate amountToPay based on the original payment method logic
+            let newAmountToPay = newTotal;
             if (selectedOrder.payment.method === 'deposit') {
-                newAmountToPay = Math.round(newPrice * 0.7);
+                newAmountToPay = Math.round(newTotal * 0.7);
             }
             
-            await handleUpdate(selectedOrder.id, { 
+            await updateOrder(selectedOrder.id, { 
                 items: updatedItems,
-                totalPrice: newPrice, // Update total price
-                amountToPay: newAmountToPay // Update amountToPay
-            }, false); 
+                totalPrice: newTotal, 
+                amountToPay: newAmountToPay
+            });
             alert("Đã xóa vật phẩm và cập nhật giá thành công.");
-            fetchOrders(); // Refresh order list
+            fetchOrders(); 
         }
     }
 
@@ -377,7 +483,7 @@ const AdminPage: React.FC = () => {
                 </div>
 
                 {/* --- CHỨC NĂNG ADMIN NỘI BỘ (ĐÃ BỎ NÚT TẠO ĐƠN HÀNG NHANH) --- */}
-                {/* <div className="mb-6 pt-2 border-b border-gray-200 flex justify-between items-center">...</div> */}
+                {/* Đã loại bỏ phần này theo yêu cầu */}
 
 
                 {/* --- DASHBOARD --- */}
@@ -570,16 +676,25 @@ const AdminPage: React.FC = () => {
                                     <PickingList items={selectedOrder.items} allParts={products} />
 
                                     {/* Khung Chỉnh sửa Vật phẩm Rời (Chỉ cho Admin) */}
-                                    {userRole === 'admin' && selectedOrder.items[0]?.draggableItems.length > 0 && (
+                                    {userRole === 'admin' && selectedOrder.items[0]?.draggableItems.length >= 0 && ( // Ensure it shows even if list is empty
                                         <div className="mt-8 pt-6 border-t border-gray-100">
-                                            <p className="text-xs text-gray-400 mb-3 font-bold uppercase">Công cụ chỉnh sửa nhanh (Vật phẩm rời)</p>
+                                            <p className="text-xs text-gray-400 mb-3 font-bold uppercase flex justify-between items-center">
+                                                <span>🛠️ CÔNG CỤ CHỈNH SỬA VẬT PHẨM RỜI</span>
+                                                <button onClick={() => setIsAddingItem(true)} className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-xs font-bold hover:bg-blue-200">
+                                                    + THÊM MỚI
+                                                </button>
+                                            </p>
                                             <div className="space-y-3">
-                                                {selectedOrder.items[0].draggableItems.map(item => (
-                                                    <div key={item.id} className="flex justify-between items-center bg-gray-50 p-3 rounded border border-gray-200">
-                                                        <span className="text-sm font-medium">{products.find(p => p.id === item.partId)?.name || (item.type === 'charm' ? 'Charm (Ảnh riêng)' : '---')} ({item.type})</span>
-                                                        <button onClick={() => handleRemoveDraggableItem(item.id)} className="text-red-600 text-xs font-bold px-3 py-1 bg-white border border-red-300 rounded hover:bg-red-50">Xóa</button>
-                                                    </div>
-                                                ))}
+                                                {selectedOrder.items[0].draggableItems.length > 0 ? (
+                                                    selectedOrder.items[0].draggableItems.map(item => (
+                                                        <div key={item.id} className="flex justify-between items-center bg-gray-50 p-3 rounded border border-gray-200">
+                                                            <span className="text-sm font-medium">{products.find(p => p.id === item.partId)?.name || (item.type === 'charm' ? 'Charm (Ảnh riêng)' : '---')} ({item.type})</span>
+                                                            <button onClick={() => handleRemoveDraggableItem(item.id)} className="text-red-600 text-xs font-bold px-3 py-1 bg-white border border-red-300 rounded hover:bg-red-50">Xóa</button>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                     <p className="text-sm text-gray-500 p-2 bg-gray-50 border rounded">Chưa có vật phẩm rời nào.</p>
+                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -634,6 +749,15 @@ const AdminPage: React.FC = () => {
 
                 {isEditingProduct && <ProductForm initialData={editingPart} onSave={handleSaveProduct} onCancel={() => setIsEditingProduct(false)} />}
                 {loading && <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50"><div className="text-black font-bold animate-pulse">Đang xử lý...</div></div>}
+                
+                {/* Add Item Modal */}
+                {isAddingItem && userRole === 'admin' && (
+                    <QuickAddItem 
+                        products={products}
+                        onAddItem={handleAddDraggableItem}
+                        onClose={() => setIsAddingItem(false)}
+                    />
+                )}
             </div>
         </div>
     );
