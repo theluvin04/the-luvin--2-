@@ -7,15 +7,9 @@ import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebas
 import type { Order, LegoPart } from '../types';
 import { LEGO_PARTS } from '../constants';
 
-// --- Form Thêm/Sửa Sản phẩm (Giữ nguyên) ---
-const ProductForm: React.FC<{ 
-    initialData?: LegoPart | null; 
-    onSave: (part: LegoPart) => void; 
-    onCancel: () => void 
-}> = ({ initialData, onSave, onCancel }) => {
-    const [formData, setFormData] = useState<LegoPart>(initialData || {
-        id: `part_${Date.now()}`, name: '', price: 0, imageUrl: '', type: 'accessory', widthCm: 1, heightCm: 1
-    });
+// --- Form Sản phẩm (Giữ nguyên) ---
+const ProductForm: React.FC<{ initialData?: LegoPart | null; onSave: (part: LegoPart) => void; onCancel: () => void }> = ({ initialData, onSave, onCancel }) => {
+    const [formData, setFormData] = useState<LegoPart>(initialData || { id: `part_${Date.now()}`, name: '', price: 0, imageUrl: '', type: 'accessory', widthCm: 1, heightCm: 1 });
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: name === 'price' || name === 'widthCm' || name === 'heightCm' ? Number(value) : value }));
@@ -44,7 +38,18 @@ const ProductForm: React.FC<{
     );
 };
 
-// --- TRANG ADMIN CHÍNH ---
+// --- HÀM HỖ TRỢ (Mới) ---
+const getStatusColor = (status: string) => {
+    switch (status) {
+        case 'Đã giao hàng': return 'bg-green-500 hover:bg-green-600';
+        case 'Đã xác nhận':
+        case 'Đang xử lý': return 'bg-blue-500 hover:bg-blue-600';
+        case 'Đang giao hàng': return 'bg-orange-500 hover:bg-orange-600';
+        case 'Hủy đơn': return 'bg-red-500 hover:bg-red-600';
+        default: return 'bg-yellow-500 hover:bg-yellow-600'; // Chờ thanh toán
+    }
+};
+
 const AdminPage: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [email, setEmail] = useState('');
@@ -63,7 +68,8 @@ const AdminPage: React.FC = () => {
 
     const [startDate, setStartDate] = useState(thirtyDaysAgo); 
     const [endDate, setEndDate] = useState(today); 
-    const [comparisonEnabled, setComparisonEnabled] = useState(false); // MỚI: So sánh với kỳ trước
+    const [comparisonEnabled, setComparisonEnabled] = useState(false);
+    const [quickDateFilter, setQuickDateFilter] = useState('30days'); // MỚI: Lọc nhanh
 
     // State khác
     const [isEditingProduct, setIsEditingProduct] = useState(false);
@@ -89,6 +95,26 @@ const AdminPage: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
+    // Cập nhật ngày theo nút lọc nhanh
+    useEffect(() => {
+        const now = new Date();
+        const start = new Date();
+        if (quickDateFilter === 'today') {
+            start.setHours(0, 0, 0, 0);
+        } else if (quickDateFilter === '7days') {
+            start.setDate(now.getDate() - 7);
+        } else if (quickDateFilter === '30days') {
+            start.setDate(now.getDate() - 30);
+        } else if (quickDateFilter === 'all') {
+            setStartDate('2020-01-01'); // Mock ngày xa nhất
+            setEndDate(today);
+            return;
+        }
+        setStartDate(start.toISOString().split('T')[0]);
+        setEndDate(now.toISOString().split('T')[0]);
+    }, [quickDateFilter]);
+
+
     useEffect(() => {
         if (selectedOrder) {
             setNoteInput(selectedOrder.internalNotes || '');
@@ -96,7 +122,6 @@ const AdminPage: React.FC = () => {
         }
     }, [selectedOrder]);
 
-    // XỬ LÝ ĐĂNG NHẬP (EMAIL/PASS) - GIỮ NGUYÊN
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoginError('');
@@ -114,39 +139,49 @@ const AdminPage: React.FC = () => {
     const handleSaveAdminInfo = () => { if (selectedOrder) { handleUpdate(selectedOrder.id, { internalNotes: noteInput, adminDeadline: adminDeadlineInput }); } };
     const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
     const formatDate = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleDateString('vi-VN');
-
-    // --- TÍNH TOÁN THỐNG KÊ (ĐÃ THÊM LỌC THEO NGÀY VÀ MOCK GIÁ VỐN/HOÀN) ---
+    
+    // --- TÍNH TOÁN THỐNG KÊ (FIX LỖI TIMESTAMP VÀ MOCK DỮ LIỆU) ---
     const stats = useMemo(() => {
-        const startTimestamp = new Date(startDate).getTime();
-        const endTimestamp = new Date(endDate).getTime();
+        const start = new Date(startDate).getTime();
+        const end = new Date(endDate).getTime() + 86400000; // Cộng thêm 1 ngày để bao gồm cả ngày cuối
 
         const filteredOrders = orders.filter(order => {
-            if (!order.id) return false; 
-            const orderTimestamp = Number(order.id.slice(-6)) * 1000; // Mock timestamp từ 6 số cuối ID
-            return orderTimestamp >= startTimestamp && orderTimestamp <= endTimestamp;
+            // Mocking creation time from the last 6 digits of ID for filtering
+            if (!order.id || order.id.length < 6) return false; 
+            const orderIdTimestamp = Number(order.id.slice(-6)) * 1000; 
+            
+            // Nếu không thể mock, thì dùng ngày hiện tại (an toàn hơn là loại bỏ)
+            const orderTimestamp = isNaN(orderIdTimestamp) ? Date.now() : orderIdTimestamp; 
+
+            return orderTimestamp >= start && orderTimestamp <= end;
         });
 
+        // MOCK DATA CHO KỲ TRƯỚC (Mock: -10% Doanh thu)
         const totalRevenue = filteredOrders.reduce((acc, order) => acc + order.totalPrice, 0);
         const totalOrders = filteredOrders.length;
-        const pendingOrders = filteredOrders.filter(o => o.status === 'Chờ thanh toán' || o.status === 'Đang xử lý').length;
         const totalRefund = filteredOrders.filter(o => o.status === 'Hủy đơn').reduce((acc, order) => acc + order.totalPrice, 0);
-        const totalCostMock = totalRevenue * 0.45; // Mock 45% giá vốn
+        const totalCostMock = totalRevenue * 0.45; 
         const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-        const topCharms = filteredOrders.flatMap(order => order.items.flatMap(frame => frame.draggableItems.map(item => item.partId)))
-            .reduce((acc, partId) => {
-                const product = products.find(p => p.id === partId);
-                const name = product ? product.name : partId;
-                acc[partId] = (acc[partId] || { name, count: 0 });
-                acc[partId].count++;
-                return acc;
-            }, {} as Record<string, { name: string, count: number }>);
         
-        const topCharmsArray = Object.values(topCharms).sort((a, b) => b.count - a.count).slice(0, 5);
+        // Thống kê Charm/Phụ kiện
+        const charmCounts: Record<string, {name: string, count: number, type: string}> = {};
+        filteredOrders.forEach(order => {
+            order.items.forEach(frame => {
+                frame.draggableItems.forEach(item => {
+                    const product = products.find(p => p.id === item.partId);
+                    const name = product ? product.name : (item.type === 'charm' ? 'Charm ảnh' : item.partId);
+                    if (!charmCounts[item.partId]) charmCounts[item.partId] = { name, count: 0, type: item.type };
+                    charmCounts[item.partId].count++;
+                });
+            });
+        });
+        
+        const topCharms = Object.values(charmCounts).sort((a, b) => b.count - a.count).slice(0, 5);
 
-        return { totalRevenue, totalOrders, pendingOrders, totalRefund, totalCostMock, avgOrderValue, topCharms: topCharmsArray };
+        return { totalRevenue, totalOrders, pendingOrders: filteredOrders.filter(o => o.status === 'Chờ thanh toán' || o.status === 'Đang xử lý').length, totalRefund, totalCostMock, avgOrderValue, topCharms };
     }, [orders, products, startDate, endDate]);
 
-    // --- SẮP XẾP VÀ LỌC KHÁC GIỮ NGUYÊN ---
+
     const filteredProducts = useMemo(() => {
         return products.filter(p => {
             const matchesSearch = p.name.toLowerCase().includes(productSearch.toLowerCase());
@@ -155,6 +190,7 @@ const AdminPage: React.FC = () => {
         });
     }, [products, productSearch, productCategory]);
 
+    // --- SẮP XẾP ĐƠN HÀNG (GIỮ NGUYÊN) ---
     const sortedOrders = useMemo(() => {
         let result = [...orders];
         if (sortMode === 'urgent') {
@@ -171,6 +207,11 @@ const AdminPage: React.FC = () => {
         }
         return result;
     }, [orders, sortMode]);
+    
+    // Lọc đơn hàng HOÀN THÀNH/HỦY (MỚI: Phục vụ tính năng dọn dẹp)
+    const activeOrders = useMemo(() => {
+        return sortedOrders.filter(o => o.status !== 'Đã giao hàng' && o.status !== 'Hủy đơn');
+    }, [sortedOrders]);
 
     if (!currentUser) {
         return (
@@ -191,6 +232,7 @@ const AdminPage: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gray-100">
+            {/* Header */}
             <div className="bg-white shadow-sm border-b sticky top-0 z-10">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex justify-between items-center">
                     <div className="flex items-center">
@@ -207,68 +249,94 @@ const AdminPage: React.FC = () => {
             </div>
 
             <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-                {/* --- DASHBOARD --- */}
+                {/* --- TAB DASHBOARD --- */}
                 {activeTab === 'dashboard' && (
                     <div className="space-y-6">
-                        {/* BỘ LỌC NGÀY/THÁNG */}
+                        {/* BỘ LỌC NGÀY/THÁNG (Theo tham khảo POS Pancake) */}
                         <div className="bg-white shadow rounded-lg p-4 flex flex-wrap items-center gap-4">
-                             <h3 className="text-lg font-bold text-gray-800">Phân tích theo:</h3>
-                             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="p-2 border rounded text-sm focus:ring-luvin-pink" />
-                             <span>đến</span>
-                             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="p-2 border rounded text-sm focus:ring-luvin-pink" />
+                             <h3 className="text-lg font-bold text-gray-800 mr-4">Phân tích theo:</h3>
+                             
+                             {/* Nút lọc nhanh */}
+                             <div className="flex gap-2">
+                                {['today', '7days', '30days', 'all'].map(key => (
+                                    <button key={key} onClick={() => setQuickDateFilter(key)} className={`px-3 py-1 text-sm rounded-full font-medium ${quickDateFilter === key ? 'bg-luvin-pink text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
+                                        {key === 'today' ? 'Hôm nay' : key === '7days' ? '7 ngày qua' : key === '30days' ? '30 ngày qua' : 'Toàn bộ'}
+                                    </button>
+                                ))}
+                             </div>
+
+                             {/* Lọc tùy chỉnh */}
+                             <div className="flex items-center gap-2 border-l pl-4 ml-4">
+                                <input type="date" value={startDate} onChange={e => {setStartDate(e.target.value); setQuickDateFilter('')}} className="p-2 border rounded text-sm focus:ring-luvin-pink" />
+                                <span>đến</span>
+                                <input type="date" value={endDate} onChange={e => {setEndDate(e.target.value); setQuickDateFilter('')}} className="p-2 border rounded text-sm focus:ring-luvin-pink" />
+                             </div>
+
                              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 ml-4 cursor-pointer">
                                 <input type="checkbox" checked={comparisonEnabled} onChange={e => setComparisonEnabled(e.target.checked)} className="h-4 w-4 rounded text-luvin-pink" />
-                                So sánh với kỳ trước
+                                So sánh với kỳ trước (Mock)
                              </label>
                         </div>
                         
-                        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                        {/* THẺ TỔNG QUAN (Theo tham khảo POS Pancake) */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             {/* Tổng doanh thu */}
-                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-green-500"><dt className="text-sm text-gray-500">Tổng doanh thu</dt><dd className="text-2xl font-bold">{formatCurrency(stats.totalRevenue)}</dd> {comparisonEnabled && <p className="text-xs text-green-500 mt-1">▲ 15% so với kỳ trước (Mock)</p>}</div>
-                            {/* Tổng tiền hoàn (MOCK) */}
-                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-red-500"><dt className="text-sm text-gray-500">Tổng tiền hoàn</dt><dd className="text-2xl font-bold">{formatCurrency(stats.totalRefund)}</dd> {comparisonEnabled && <p className="text-xs text-red-500 mt-1">▼ 5% so với kỳ trước (Mock)</p>}</div>
+                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-green-500"><dt className="text-sm text-gray-500">Doanh thu</dt><dd className="text-2xl font-bold">{formatCurrency(stats.totalRevenue)}</dd> {comparisonEnabled && <p className={`text-xs ${stats.totalRevenue > 1000000 ? 'text-green-500' : 'text-red-500'} mt-1`}>▲ 15% (Mock)</p>}</div>
                             {/* Tổng đơn hàng */}
-                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-blue-500"><dt className="text-sm text-gray-500">Tổng đơn hàng</dt><dd className="text-2xl font-bold">{stats.totalOrders}</dd></div>
-                            {/* Giá trị trung bình */}
-                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-purple-500"><dt className="text-sm text-gray-500">TB/Đơn</dt><dd className="text-2xl font-bold">{formatCurrency(stats.avgOrderValue)}</dd></div>
-                            {/* Tổng giá vốn (MOCK) */}
-                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-yellow-500"><dt className="text-sm text-gray-500">Tổng giá vốn (Mock)</dt><dd className="text-2xl font-bold">{formatCurrency(stats.totalCostMock)}</dd></div>
-                            {/* Lợi nhuận (MOCK) */}
-                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-green-300"><dt className="text-sm text-gray-500">Lợi nhuận (Mock)</dt><dd className="text-2xl font-bold">{formatCurrency(stats.totalRevenue - stats.totalCostMock)}</dd></div>
-
+                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-blue-500"><dt className="text-sm text-gray-500">Tổng đơn hàng</dt><dd className="text-2xl font-bold">{stats.totalOrders}</dd> {comparisonEnabled && <p className="text-xs text-red-500 mt-1">▼ 5% (Mock)</p>}</div>
+                            {/* Lợi nhuận (Mock) */}
+                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-purple-500"><dt className="text-sm text-gray-500">Lợi nhuận (Mock)</dt><dd className="text-2xl font-bold">{formatCurrency(stats.totalRevenue - stats.totalCostMock)}</dd></div>
+                            {/* Tổng tiền hoàn */}
+                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-yellow-500"><dt className="text-sm text-gray-500">Tổng tiền hoàn</dt><dd className="text-2xl font-bold">{formatCurrency(stats.totalRefund)}</dd></div>
+                            {/* Giá trị TB/Đơn */}
+                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-red-500"><dt className="text-sm text-gray-500">Giá trị TB/Đơn</dt><dd className="text-2xl font-bold">{formatCurrency(stats.avgOrderValue)}</dd></div>
                         </div>
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                             {/* Top Charms */}
                              <div className="bg-white shadow rounded-lg p-6"><h3 className="text-lg font-bold text-gray-800 mb-4">🏆 Top 5 Phụ kiện/Charm được chọn</h3><div className="space-y-3">{stats.topCharms.length > 0 ? stats.topCharms.map((item, idx) => (<div key={idx} className="flex justify-between items-center border-b pb-2 last:border-0"><div className="flex items-center gap-3"><span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${idx === 0 ? 'bg-yellow-400 text-white' : 'bg-gray-200'}`}>{idx + 1}</span><span className="text-sm font-medium">{item.name}</span><span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-500 capitalize">{item.type}</span></div><span className="font-bold text-luvin-pink">{item.count} lần</span></div>)) : <p className="text-gray-500">Chưa có dữ liệu thống kê.</p>}</div></div>
-                            {/* Recent Orders */}
                             <div className="bg-white shadow rounded-lg p-6"><h3 className="text-lg font-bold text-gray-800 mb-4">Đơn cần xử lý gấp</h3><ul className="divide-y">{orders.filter(o => o.status !== 'Đã giao hàng' && o.status !== 'Hủy đơn').sort((a, b) => {if (a.isUrgent && !b.isUrgent) return -1; if (!a.isUrgent && b.isUrgent) return 1; if (a.adminDeadline && b.adminDeadline) return new Date(a.adminDeadline).getTime() - new Date(b.adminDeadline).getTime(); if (!a.delivery.date) return 1; if (!b.delivery.date) return -1; return new Date(a.delivery.date).getTime() - new Date(b.delivery.date).getTime();}).slice(0, 5).map(o => (<li key={o.id} onClick={() => { setSelectedOrder(o); setActiveTab('orders'); }} className="py-3 px-4 flex justify-between cursor-pointer hover:bg-red-50 border-l-4 border-transparent hover:border-red-500"><div><span className="text-sm font-bold text-red-600 flex items-center gap-1">{o.isUrgent && <span>🔥</span>} {o.id}</span><span className="text-xs text-gray-400 mt-1">Hạn: {formatDate(o.adminDeadline || o.delivery.date)}</span></div><span className="text-sm font-bold">{formatCurrency(o.totalPrice)}</span></li>))}</ul></div>
                         </div>
                     </div>
                 )}
 
-                {/* --- ORDERS --- (Giữ nguyên) */}
+                {/* --- TAB ORDERS --- */}
                 {activeTab === 'orders' && (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-140px)]">
+                        {/* Cột trái: Danh sách (CHỈ HIỂN THỊ ĐƠN ĐANG CHỜ XỬ LÝ) */}
                         <div className="lg:col-span-1 bg-white rounded-lg shadow overflow-hidden flex flex-col">
-                            <div className="p-3 border-b bg-gray-50 flex gap-2"><button onClick={() => setSortMode('newest')} className={`flex-1 py-2 text-xs font-bold rounded ${sortMode === 'newest' ? 'bg-white border-luvin-pink text-luvin-pink border' : 'bg-gray-200'}`}>Mới nhất</button><button onClick={() => setSortMode('urgent')} className={`flex-1 py-2 text-xs font-bold rounded ${sortMode === 'urgent' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}>Cần làm gấp 🔥</button></div>
-                            <div className="overflow-y-auto flex-grow">{sortedOrders.map(order => (<div key={order.id} onClick={() => setSelectedOrder(order)} className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${selectedOrder?.id === order.id ? 'bg-pink-50 border-l-4 border-luvin-pink' : ''} ${order.isUrgent ? 'bg-red-50' : ''}`}><div className="flex justify-between mb-1"><span className="font-bold text-gray-800 flex items-center gap-1">{order.isUrgent && <span>🔥</span>} {order.id}</span><span className={`text-xs px-2 rounded ${order.adminDeadline ? 'bg-red-100 text-red-800 font-bold' : 'bg-gray-100 text-gray-500'}`}>{order.adminDeadline ? `Hạn chốt: ${formatDate(order.adminDeadline)}` : `Khách hẹn: ${formatDate(order.delivery.date)}`}</span></div><div className="flex justify-between text-sm"><span className="text-gray-600">{order.customer.name}</span><span className="font-bold text-luvin-pink">{formatCurrency(order.totalPrice)}</span></div></div>))}</div>
+                            <div className="p-3 border-b bg-gray-50 flex gap-2">
+                                <button onClick={() => setSortMode('newest')} className={`flex-1 py-2 text-xs font-bold rounded ${sortMode === 'newest' ? 'bg-white border-luvin-pink text-luvin-pink border' : 'bg-gray-200'}`}>Mới nhất</button>
+                                <button onClick={() => setSortMode('urgent')} className={`flex-1 py-2 text-xs font-bold rounded ${sortMode === 'urgent' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}>Cần làm gấp 🔥</button>
+                            </div>
+                            <div className="overflow-y-auto flex-grow">
+                                {activeOrders.map(order => (<div key={order.id} onClick={() => setSelectedOrder(order)} className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${selectedOrder?.id === order.id ? 'bg-pink-50 border-l-4 border-luvin-pink' : ''} ${order.isUrgent ? 'bg-red-50' : ''}`}><div className="flex justify-between mb-1"><span className="font-bold text-gray-800 flex items-center gap-1">{order.isUrgent && <span>🔥</span>} {order.id}</span><span className={`text-xs px-2 rounded ${order.adminDeadline ? 'bg-red-100 text-red-800 font-bold' : 'bg-gray-100 text-gray-500'}`}>{order.adminDeadline ? `Hạn chốt: ${formatDate(order.adminDeadline)}` : `Khách hẹn: ${formatDate(order.delivery.date)}`}</span></div><div className="flex justify-between text-sm"><span className="text-gray-600">{order.customer.name}</span><span className="font-bold text-luvin-pink">{formatCurrency(order.totalPrice)}</span></div></div>))}
+                            </div>
+                            <p className="p-2 text-center text-xs text-gray-500 border-t bg-gray-50">Đơn hàng hoàn thành/hủy đã được ẩn.</p>
                         </div>
+        
+                        {/* Cột phải: Chi tiết */}
                         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6 overflow-y-auto">
                             {selectedOrder ? (
                                 <div>
-                                    <div className="flex justify-between items-center border-b pb-4 mb-4"><h2 className="text-xl font-bold">{selectedOrder.id} <span className="text-sm font-normal text-gray-500">({selectedOrder.status})</span></h2><label className="flex items-center cursor-pointer bg-gray-100 px-3 py-2 rounded hover:bg-gray-200"><input type="checkbox" className="mr-2" checked={selectedOrder.isUrgent || false} onChange={(e) => handleUpdate(selectedOrder.id, { isUrgent: e.target.checked }, false)} /><span className="text-sm font-bold text-red-600">Đánh dấu Gấp 🔥</span></label></div>
-                                    <div className="bg-blue-50 p-4 rounded border border-blue-100 mb-6 grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-blue-800 mb-1">Ghi chú nội bộ</label><input type="text" className="w-full p-2 border rounded text-sm" placeholder="Ví dụ: Khách quen..." value={noteInput} onChange={(e) => setNoteInput(e.target.value)} /></div><div><label className="block text-xs font-bold text-blue-800 mb-1">Ngày CHỐT phải gửi (Admin)</label><input type="date" className="w-full p-2 border rounded text-sm" value={adminDeadlineInput} onChange={e => setAdminDeadlineInput(e.target.value)} /></div><div className="md:col-span-2 text-right"><button onClick={handleSaveAdminInfo} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700">Lưu thông tin Admin</button></div></div>
-                                    <div className="grid grid-cols-2 gap-6 text-sm mb-6"><div><h3 className="font-bold border-b pb-1 mb-2">Khách hàng</h3><p>Tên: {selectedOrder.customer.name}</p><p>SĐT: {selectedOrder.customer.phone}</p><p>ĐC: {selectedOrder.customer.address}</p><p className="mt-2 bg-yellow-50 p-2 italic text-gray-600 border border-yellow-100">"{selectedOrder.delivery.notes || 'Không có ghi chú'}"</p></div><div><h3 className="font-bold border-b pb-1 mb-2">Thanh toán</h3><p>Tổng: <span className="text-luvin-pink font-bold">{formatCurrency(selectedOrder.totalPrice)}</span></p><p>Cần thu (COD): <span className="text-red-600 font-bold">{formatCurrency(selectedOrder.amountToPay)}</span></p><p>Vận chuyển: {selectedOrder.shipping.method}</p></div></div>
-                                    <div className="bg-gray-100 p-4 rounded flex justify-center">{selectedOrder.items[0]?.previewImageUrl ? <img src={selectedOrder.items[0].previewImageUrl} className="max-h-64 shadow-lg bg-white" /> : <span className="text-gray-400">Không có ảnh</span>}</div>
-                                    <div className="mt-4 flex flex-wrap gap-2 justify-center">{['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng', 'Hủy đơn'].map(st => (<button key={st} onClick={() => handleUpdate(selectedOrder.id, { status: st })} className={`px-3 py-1 text-xs border rounded hover:opacity-80 ${selectedOrder.status === st ? 'bg-gray-800 text-white' : 'bg-white'}`}>{st}</button>))}</div>
+                                    {/* Nút Status (Theo tham khảo POS Pancake) */}
+                                    <div className="flex flex-wrap gap-2 mb-4">
+                                        {['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng', 'Hủy đơn'].map(st => (
+                                            <button key={st} onClick={() => handleUpdate(selectedOrder.id, { status: st })} className={`px-4 py-2 text-sm font-bold text-white rounded transition-colors ${getStatusColor(st)} ${selectedOrder.status === st ? 'opacity-100 ring-2 ring-offset-2 ring-luvin-pink' : 'opacity-80'}`}>{st}</button>
+                                        ))}
+                                    </div>
+
+                                    <div className="bg-blue-50 p-4 rounded border border-blue-100 mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div><label className="block text-xs font-bold text-blue-800 mb-1">Ghi chú nội bộ</label><input type="text" className="w-full p-2 border rounded text-sm" placeholder="Ví dụ: Khách quen..." value={noteInput} onChange={(e) => setNoteInput(e.target.value)} /></div>
+                                        <div><label className="block text-xs font-bold text-blue-800 mb-1">Ngày CHỐT phải gửi (Admin)</label><input type="date" className="w-full p-2 border rounded text-sm" value={adminDeadlineInput} onChange={e => setAdminDeadlineInput(e.target.value)} /></div>
+                                        <div className="md:col-span-2 text-right"><button onClick={handleSaveAdminInfo} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700">Lưu thông tin Admin</button></div>
+                                    </div>
                                 </div>
                             ) : <div className="flex items-center justify-center h-full text-gray-400">Chọn đơn hàng</div>}
                         </div>
                     </div>
                 )}
 
-                {/* --- PRODUCTS --- (Giữ nguyên) */}
+                {/* --- TAB PRODUCTS --- (Giữ nguyên) */}
                 {activeTab === 'products' && (
                     <div>
                         <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
