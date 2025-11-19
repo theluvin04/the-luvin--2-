@@ -4,8 +4,8 @@ import { getAllOrders, updateOrder } from '../services/orderService';
 import { getAllParts, addPart, updatePart, deletePart, seedDatabase } from '../services/productService';
 import { auth } from '../config/firebase';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'; 
-import type { Order, LegoPart } from '../types';
-import { LEGO_PARTS } from '../constants';
+import type { Order, LegoPart, FrameConfig } from '../types';
+import { LEGO_PARTS, FRAME_OPTIONS } from '../constants';
 
 // --- CẤU HÌNH PHÂN QUYỀN ---
 const USER_ROLES: Record<string, 'admin' | 'warehouse'> = {
@@ -13,6 +13,61 @@ const USER_ROLES: Record<string, 'admin' | 'warehouse'> = {
     "jinbduong@gmail.com": "admin", 
     "kho1@gmail.com": "warehouse",
     "kho2@gmail.com": "warehouse",
+};
+
+// --- COMPONENT HIỂN THỊ CHI TIẾT SOẠN HÀNG (PICKING LIST) ---
+const PickingList: React.FC<{ items: FrameConfig[]; allParts: LegoPart[] }> = ({ items, allParts }) => {
+    // Hàm tìm tên sản phẩm theo ID
+    const getPartName = (id?: string, type?: string) => {
+        if (!id) return "---";
+        if (type === 'charm') return "Charm (Ảnh riêng)";
+        const part = allParts.find(p => p.id === id);
+        return part ? part.name : id; // Nếu không tìm thấy thì hiện ID
+    };
+
+    const getFrameName = (id: string) => FRAME_OPTIONS.find(f => f.id === id)?.name || id;
+
+    return (
+        <div className="bg-gray-50 border border-gray-200 rounded p-4 mt-4">
+            <h4 className="font-bold text-gray-800 border-b border-gray-300 pb-2 mb-3 uppercase text-xs tracking-wider">
+                📝 Chi tiết soạn hàng (Kho)
+            </h4>
+            <div className="space-y-6">
+                {items.map((frame, idx) => (
+                    <div key={idx} className="text-sm">
+                        <p className="font-bold text-blue-900 mb-2">
+                            #{idx + 1}. Khung: {getFrameName(frame.frameId)}
+                        </p>
+                        
+                        {/* Danh sách nhân vật */}
+                        {frame.characters.map((char, cIdx) => (
+                            <div key={cIdx} className="ml-4 mb-2 pl-3 border-l-2 border-gray-300">
+                                <p className="font-semibold text-gray-700">NV {cIdx + 1}:</p>
+                                <ul className="list-disc list-inside text-gray-600 ml-2 grid grid-cols-2 gap-x-4">
+                                    <li>Tóc/Mũ: <span className="font-medium text-black">{getPartName(char.hair?.id || char.hat?.id)}</span></li>
+                                    <li>Mặt: <span className="font-medium text-black">{getPartName(char.face?.id)}</span></li>
+                                    <li>Áo: <span className="font-medium text-black">{getPartName(char.shirt?.id)}</span> {char.selectedShirtColor && `(${char.selectedShirtColor.name})`}</li>
+                                    <li>Quần: <span className="font-medium text-black">{getPartName(char.pants?.id)}</span> {char.selectedPantsColor && `(${char.selectedPantsColor.name})`}</li>
+                                </ul>
+                            </div>
+                        ))}
+
+                        {/* Phụ kiện rời */}
+                        {frame.draggableItems.length > 0 && (
+                            <div className="ml-4 mt-2">
+                                <p className="font-semibold text-gray-700">Phụ kiện & Thú cưng:</p>
+                                <ul className="list-disc list-inside ml-2 text-gray-800">
+                                    {frame.draggableItems.map((item, iIdx) => (
+                                        <li key={iIdx}>{getPartName(item.partId, item.type)}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
 };
 
 // --- Form Sản phẩm (Giữ nguyên) ---
@@ -24,11 +79,11 @@ const ProductForm: React.FC<{ initialData?: LegoPart | null; onSave: (part: Lego
 
 const getStatusColor = (status: string) => {
     switch (status) {
-        case 'Đã giao hàng': return 'bg-green-500 hover:bg-green-600';
-        case 'Đã xác nhận': case 'Đang xử lý': return 'bg-blue-500 hover:bg-blue-600';
-        case 'Đang giao hàng': return 'bg-orange-500 hover:bg-orange-600';
-        case 'Hủy đơn': return 'bg-red-500 hover:bg-red-600';
-        default: return 'bg-yellow-500 hover:bg-yellow-600';
+        case 'Đã giao hàng': return 'bg-green-100 text-green-800 border-green-200';
+        case 'Đã xác nhận': case 'Đang xử lý': return 'bg-blue-100 text-blue-800 border-blue-200';
+        case 'Đang giao hàng': return 'bg-orange-100 text-orange-800 border-orange-200';
+        case 'Hủy đơn': return 'bg-red-100 text-red-800 border-red-200';
+        default: return 'bg-yellow-100 text-yellow-800 border-yellow-200';
     }
 };
 
@@ -47,23 +102,21 @@ const AdminPage: React.FC = () => {
     
     const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products'>('dashboard');
     
-    // State bộ lọc Dashboard
+    // Date Filter
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const today = new Date().toISOString().split('T')[0];
     const [startDate, setStartDate] = useState(thirtyDaysAgo); 
     const [endDate, setEndDate] = useState(today); 
-    const [comparisonEnabled, setComparisonEnabled] = useState(false);
     const [quickDateFilter, setQuickDateFilter] = useState('30days'); 
 
-    // State quản lý đơn hàng
-    const [orderViewMode, setOrderViewMode] = useState<'active' | 'history'>('active'); // 'active': Đang xử lý, 'history': Đã xong
+    // Order View Mode
+    const [orderViewMode, setOrderViewMode] = useState<'active' | 'history'>('active'); 
 
     // State khác
     const [isEditingProduct, setIsEditingProduct] = useState(false);
     const [editingPart, setEditingPart] = useState<LegoPart | null>(null);
     const [noteInput, setNoteInput] = useState('');
     const [adminDeadlineInput, setAdminDeadlineInput] = useState('');
-    const [sortMode, setSortMode] = useState<'newest' | 'urgent'>('newest');
     const [productSearch, setProductSearch] = useState('');
     const [productCategory, setProductCategory] = useState('all');
 
@@ -77,7 +130,7 @@ const AdminPage: React.FC = () => {
                     if (role === 'warehouse') setActiveTab('orders');
                     else setActiveTab('dashboard');
                     fetchOrders();
-                    if (role === 'admin') fetchProducts();
+                    fetchProducts(); // Luôn tải sản phẩm để hiển thị tên trong Picking List
                 } else {
                     alert("Tài khoản này chưa được cấp quyền truy cập!");
                     signOut(auth);
@@ -91,14 +144,6 @@ const AdminPage: React.FC = () => {
         });
         return () => unsubscribe();
     }, []);
-
-    const handleSwitchTab = (tab: 'dashboard' | 'orders' | 'products') => {
-        if (userRole === 'warehouse' && (tab === 'dashboard' || tab === 'products')) {
-            alert("Bạn không có quyền truy cập mục này!");
-            return;
-        }
-        setActiveTab(tab);
-    }
 
     useEffect(() => {
         const now = new Date();
@@ -145,13 +190,12 @@ const AdminPage: React.FC = () => {
 
     const handleConfirmPacked = () => {
         if (selectedOrder && currentUser) {
-            if (confirm(`Xác nhận bạn (${currentUser.email}) đã bọc xong đơn ${selectedOrder.id}? Đơn sẽ chuyển sang trạng thái 'Đã giao hàng'.`)) {
+            if (confirm(`Xác nhận bạn (${currentUser.email}) đã bọc xong đơn ${selectedOrder.id}?`)) {
                 handleUpdate(selectedOrder.id, {
-                    status: 'Đã giao hàng', // Chuyển trạng thái HOÀN THÀNH
+                    status: 'Đã giao hàng', 
                     packerEmail: currentUser.email, 
                     packedAt: new Date().toISOString() 
                 });
-                // Tự động đóng chi tiết đơn sau khi bọc xong để chọn đơn khác
                 setSelectedOrder(null);
             }
         }
@@ -161,28 +205,16 @@ const AdminPage: React.FC = () => {
     const formatDate = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleDateString('vi-VN');
     const formatDateTime = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleString('vi-VN');
 
-    // --- LOGIC LỌC NGÀY THÁNG ĐÃ SỬA (Fix lỗi hiển thị 0đ) ---
     const stats = useMemo(() => {
         const start = new Date(startDate); start.setHours(0,0,0,0);
         const end = new Date(endDate); end.setHours(23,59,59,999);
 
         const filteredOrders = orders.filter(order => {
             if (quickDateFilter === 'all') return true;
-
             let orderDate: Date;
-            // Ưu tiên 1: Lấy ngày từ createdAt
-            if (order.createdAt) {
-                orderDate = new Date(order.createdAt);
-            } 
-            // Ưu tiên 2: Lấy từ ngày giao hàng (để fallback cho đơn cũ)
-            else if (order.delivery && order.delivery.date) {
-                orderDate = new Date(order.delivery.date);
-            }
-            // Ưu tiên 3: Coi như đơn hôm nay
-            else {
-                orderDate = new Date();
-            }
-
+            if (order.createdAt) orderDate = new Date(order.createdAt);
+            else if (order.delivery && order.delivery.date) orderDate = new Date(order.delivery.date);
+            else orderDate = new Date();
             return orderDate.getTime() >= start.getTime() && orderDate.getTime() <= end.getTime();
         });
 
@@ -190,20 +222,7 @@ const AdminPage: React.FC = () => {
         const totalOrders = filteredOrders.length;
         const pendingOrders = filteredOrders.filter(o => o.status === 'Chờ thanh toán' || o.status === 'Đang xử lý').length;
         const urgentOrders = filteredOrders.filter(o => o.isUrgent).length;
-        const totalRefund = filteredOrders.filter(o => o.status === 'Hủy đơn').reduce((acc, order) => acc + order.totalPrice, 0);
-        const totalCostMock = totalRevenue * 0.45; 
-        const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
         
-        const topCharms = Object.values(filteredOrders.flatMap(order => order.items.flatMap(frame => frame.draggableItems.map(item => item.partId)))
-            .reduce((acc, partId) => {
-                const product = products.find(p => p.id === partId);
-                const name = product ? product.name : partId;
-                acc[partId] = (acc[partId] || { name, count: 0, type: product?.type || 'charm' });
-                acc[partId].count++;
-                return acc;
-            }, {} as Record<string, { name: string, count: number, type: string }>))
-            .sort((a, b) => b.count - a.count).slice(0, 5);
-            
         const packerStats = Object.values(filteredOrders.reduce((acc, order) => {
             if (order.packerEmail) {
                 const email = order.packerEmail;
@@ -212,11 +231,10 @@ const AdminPage: React.FC = () => {
                 acc[email].revenue += order.totalPrice;
             }
             return acc;
-        }, {} as Record<string, { email: string, count: number, revenue: number }>))
-        .sort((a, b) => b.count - a.count);
+        }, {} as Record<string, { email: string, count: number, revenue: number }>)).sort((a, b) => b.count - a.count);
 
-        return { totalRevenue, totalOrders, pendingOrders, urgentOrders, totalRefund, totalCostMock, avgOrderValue, topCharms, packerStats };
-    }, [orders, products, startDate, endDate, quickDateFilter]);
+        return { totalRevenue, totalOrders, pendingOrders, urgentOrders, packerStats };
+    }, [orders, startDate, endDate, quickDateFilter]);
 
     const filteredProducts = useMemo(() => {
         return products.filter(p => {
@@ -226,199 +244,221 @@ const AdminPage: React.FC = () => {
         });
     }, [products, productSearch, productCategory]);
 
+    // Sắp xếp đơn hàng: Gấp lên đầu, sau đó đến Mới nhất
     const sortedOrders = useMemo(() => {
-        let result = [...orders];
-        if (sortMode === 'urgent') {
-            result.sort((a, b) => {
-                if (a.isUrgent && !b.isUrgent) return -1;
-                if (!a.isUrgent && b.isUrgent) return 1;
-                if (a.adminDeadline && b.adminDeadline) return new Date(a.adminDeadline).getTime() - new Date(b.adminDeadline).getTime();
-                if (!a.delivery.date) return 1;
-                if (!b.delivery.date) return -1;
-                return new Date(a.delivery.date).getTime() - new Date(b.delivery.date).getTime();
-            });
-        } else {
-            result.sort((a, b) => (a.id < b.id ? 1 : -1));
-        }
-        return result;
-    }, [orders, sortMode]);
+        return [...orders].sort((a, b) => {
+            if (a.isUrgent && !b.isUrgent) return -1;
+            if (!a.isUrgent && b.isUrgent) return 1;
+            // Sắp xếp theo ID giảm dần (đơn mới nhất)
+            return (b.id || '').localeCompare(a.id || ''); 
+        });
+    }, [orders]);
     
-    // --- PHÂN LOẠI DANH SÁCH ĐƠN HÀNG ---
     const activeOrders = useMemo(() => sortedOrders.filter(o => o.status !== 'Đã giao hàng' && o.status !== 'Hủy đơn'), [sortedOrders]);
     const historyOrders = useMemo(() => sortedOrders.filter(o => o.status === 'Đã giao hàng' || o.status === 'Hủy đơn'), [sortedOrders]);
     
-    // Chọn danh sách để hiển thị dựa trên mode
     const displayOrders = orderViewMode === 'active' ? activeOrders : historyOrders;
 
-    if (!currentUser) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-100">
-                <div className="bg-white p-8 rounded-lg shadow-lg w-96 text-center">
-                    <h1 className="text-3xl font-heading font-bold mb-2 text-luvin-pink">The Luvin</h1>
-                    <p className="text-gray-400 mb-6 text-xs uppercase tracking-widest">Admin Portal</p>
-                    <form onSubmit={handleLogin} className="space-y-4">
-                        <input type="email" placeholder="Email nhân viên" className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-luvin-pink outline-none" value={email} onChange={e => setEmail(e.target.value)} required />
-                        <input type="password" placeholder="Mật khẩu" className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-luvin-pink outline-none" value={loginPass} onChange={e => setLoginPass(e.target.value)} required />
-                        {loginError && <p className="text-red-500 text-sm">{loginError}</p>}
-                        <button type="submit" className="w-full bg-gray-900 text-white font-bold py-3 rounded-lg hover:bg-black transition-colors shadow-lg">Đăng nhập</button>
-                    </form>
-                </div>
-            </div>
-        );
-    }
+    if (!currentUser) return <div className="min-h-screen flex items-center justify-center bg-white"><div className="w-80 text-center"><h1 className="text-2xl font-bold mb-4 text-gray-800">The Luvin Admin</h1><form onSubmit={handleLogin} className="space-y-4"><input type="email" placeholder="Email" className="w-full p-3 border border-gray-300 rounded" value={email} onChange={e => setEmail(e.target.value)} required /><input type="password" placeholder="Mật khẩu" className="w-full p-3 border border-gray-300 rounded" value={loginPass} onChange={e => setLoginPass(e.target.value)} required />{loginError && <p className="text-red-500 text-sm">{loginError}</p>}<button type="submit" className="w-full bg-black text-white font-bold py-3 rounded hover:opacity-80">Đăng nhập</button></form></div></div>;
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            {/* Header */}
-            <div className="bg-white shadow-sm border-b sticky top-0 z-10">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex justify-between items-center">
-                    <div className="flex items-center">
-                        <span className="text-2xl font-bold text-luvin-pink mr-8 font-heading">
-                            {userRole === 'admin' ? 'Admin Pro' : 'Kho vận'}
-                        </span>
-                        <div className="hidden sm:flex space-x-6">
-                            {userRole === 'admin' && <button onClick={() => handleSwitchTab('dashboard')} className={`capitalize font-medium ${activeTab === 'dashboard' ? 'text-luvin-pink border-b-2 border-luvin-pink' : 'text-gray-500'}`}>Dashboard</button>}
-                            <button onClick={() => handleSwitchTab('orders')} className={`capitalize font-medium ${activeTab === 'orders' ? 'text-luvin-pink border-b-2 border-luvin-pink' : 'text-gray-500'}`}>Đơn hàng</button>
-                            {userRole === 'admin' && <button onClick={() => handleSwitchTab('products')} className={`capitalize font-medium ${activeTab === 'products' ? 'text-luvin-pink border-b-2 border-luvin-pink' : 'text-gray-500'}`}>Sản phẩm</button>}
+        <div className="min-h-screen bg-white text-gray-800 font-sans">
+            {/* Top Navigation Minimalist */}
+            <div className="border-b border-gray-200 sticky top-0 bg-white z-20">
+                <div className="max-w-screen-2xl mx-auto px-4 h-14 flex justify-between items-center">
+                    <div className="flex items-center gap-8">
+                        <span className="font-bold text-lg tracking-tight">THE LUVIN ADMIN</span>
+                        <div className="flex gap-1">
+                            {userRole === 'admin' && <button onClick={() => setActiveTab('dashboard')} className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-gray-100 text-black' : 'text-gray-500 hover:text-black'}`}>Thống kê</button>}
+                            <button onClick={() => setActiveTab('orders')} className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'orders' ? 'bg-gray-100 text-black' : 'text-gray-500 hover:text-black'}`}>Đơn hàng</button>
+                            {userRole === 'admin' && <button onClick={() => setActiveTab('products')} className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'products' ? 'bg-gray-100 text-black' : 'text-gray-500 hover:text-black'}`}>Sản phẩm</button>}
                         </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <span className="text-sm font-bold text-gray-700 hidden sm:block">
-                            {currentUser.email} <span className="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-600">{userRole}</span>
-                        </span>
-                        <button onClick={handleLogout} className="text-red-500 hover:bg-red-50 px-3 py-1 rounded border border-red-200 text-sm">Thoát</button>
+                    <div className="flex items-center gap-4 text-sm">
+                        <span className="text-gray-500">{currentUser.email}</span>
+                        <button onClick={handleLogout} className="text-red-600 hover:underline">Thoát</button>
                     </div>
                 </div>
             </div>
 
-            <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-                {/* --- DASHBOARD (CHỈ ADMIN) --- */}
+            <div className="max-w-screen-2xl mx-auto px-4 py-6">
+                {/* --- DASHBOARD --- */}
                 {activeTab === 'dashboard' && userRole === 'admin' && (
-                    <div className="space-y-6">
-                        {/* Bộ lọc */}
-                        <div className="bg-white shadow rounded-lg p-4 flex flex-wrap items-center gap-4">
-                             <h3 className="text-lg font-bold text-gray-800 mr-4">Phân tích:</h3>
-                             <div className="flex gap-2">{['today', '7days', '30days', 'all'].map(key => (<button key={key} onClick={() => setQuickDateFilter(key)} className={`px-3 py-1 text-sm rounded-full font-medium ${quickDateFilter === key ? 'bg-luvin-pink text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>{key === 'today' ? 'Hôm nay' : key === '7days' ? '7 ngày' : key === '30days' ? '30 ngày' : 'Toàn bộ'}</button>))}</div>
-                             <div className="flex items-center gap-2 border-l pl-4 ml-4"><input type="date" value={startDate} onChange={e => {setStartDate(e.target.value); setQuickDateFilter('')}} className="p-2 border rounded text-sm focus:ring-luvin-pink" /><span>đến</span><input type="date" value={endDate} onChange={e => {setEndDate(e.target.value); setQuickDateFilter('')}} className="p-2 border rounded text-sm focus:ring-luvin-pink" /></div>
+                    <div className="space-y-8">
+                        {/* Date Filter */}
+                        <div className="flex flex-wrap items-center gap-4 pb-6 border-b border-gray-100">
+                             <div className="flex bg-gray-100 p-1 rounded-lg">
+                                {['today', '7days', '30days', 'all'].map(key => (
+                                    <button key={key} onClick={() => setQuickDateFilter(key)} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${quickDateFilter === key ? 'bg-white shadow text-black' : 'text-gray-500 hover:text-black'}`}>
+                                        {key === 'today' ? 'Hôm nay' : key === '7days' ? '7 ngày' : key === '30days' ? '30 ngày' : 'Tất cả'}
+                                    </button>
+                                ))}
+                             </div>
+                             <div className="flex items-center gap-2 text-sm text-gray-600">
+                                <input type="date" value={startDate} onChange={e => {setStartDate(e.target.value); setQuickDateFilter('')}} className="p-1 border rounded" />
+                                <span>—</span>
+                                <input type="date" value={endDate} onChange={e => {setEndDate(e.target.value); setQuickDateFilter('')}} className="p-1 border rounded" />
+                             </div>
                         </div>
                         
-                        {/* Thẻ thống kê */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-green-500"><dt className="text-sm text-gray-500">Doanh thu</dt><dd className="text-2xl font-bold">{formatCurrency(stats.totalRevenue)}</dd></div>
-                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-blue-500"><dt className="text-sm text-gray-500">Đơn hàng</dt><dd className="text-2xl font-bold">{stats.totalOrders}</dd></div>
-                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-purple-500"><dt className="text-sm text-gray-500">TB/Đơn</dt><dd className="text-2xl font-bold">{formatCurrency(stats.avgOrderValue)}</dd></div>
-                            <div className="bg-white p-5 rounded-lg shadow border-l-4 border-red-500"><dt className="text-sm text-gray-500">Cần xử lý gấp</dt><dd className="text-2xl font-bold text-red-600">{stats.urgentOrders}</dd></div>
+                        {/* KPI Cards */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                            <div className="p-4 border rounded-xl"><p className="text-gray-500 text-xs uppercase font-bold mb-1">Doanh thu</p><p className="text-2xl font-bold text-black">{formatCurrency(stats.totalRevenue)}</p></div>
+                            <div className="p-4 border rounded-xl"><p className="text-gray-500 text-xs uppercase font-bold mb-1">Đơn hàng</p><p className="text-2xl font-bold text-black">{stats.totalOrders}</p></div>
+                            <div className="p-4 border rounded-xl"><p className="text-gray-500 text-xs uppercase font-bold mb-1">Chờ xử lý</p><p className="text-2xl font-bold text-black">{stats.pendingOrders}</p></div>
+                            <div className="p-4 border rounded-xl bg-red-50 border-red-100"><p className="text-red-600 text-xs uppercase font-bold mb-1">Gấp / Ưu tiên</p><p className="text-2xl font-bold text-red-600">{stats.urgentOrders}</p></div>
                         </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                             <div className="bg-white shadow rounded-lg p-6"><h3 className="text-lg font-bold text-gray-800 mb-4">🏆 Top 5 Phụ kiện</h3><div className="space-y-3">{stats.topCharms.length > 0 ? stats.topCharms.map((item, idx) => (<div key={idx} className="flex justify-between items-center border-b pb-2 last:border-0"><div className="flex items-center gap-3"><span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${idx === 0 ? 'bg-yellow-400 text-white' : 'bg-gray-200'}`}>{idx + 1}</span><span className="text-sm font-medium">{item.name}</span><span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-500 capitalize">{item.type}</span></div><span className="font-bold text-luvin-pink">{item.count} lần</span></div>)) : <p className="text-gray-500">Chưa có dữ liệu thống kê.</p>}</div></div>
-                             <div className="bg-white shadow rounded-lg p-6">
-                                <h3 className="text-lg font-bold text-gray-800 mb-4">👷 Hiệu suất bọc hàng</h3>
-                                <div className="space-y-3">
-                                    {stats.packerStats.length > 0 ? stats.packerStats.map((packer, idx) => (
-                                        <div key={idx} className="flex justify-between items-center border-b pb-2 last:border-0">
-                                            <div className="flex items-center gap-3">
-                                                <span className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-xs">{idx + 1}</span>
-                                                <span className="text-sm font-medium">{packer.email}</span>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="font-bold text-gray-800">{packer.count} đơn</p>
-                                                <p className="text-xs text-gray-500">{formatCurrency(packer.revenue)}</p>
-                                            </div>
+                        {/* Packer Stats */}
+                        <div className="border rounded-xl p-6">
+                            <h3 className="text-sm font-bold uppercase text-gray-500 mb-4">Hiệu suất nhân viên</h3>
+                            <div className="space-y-3">
+                                {stats.packerStats.map((packer, idx) => (
+                                    <div key={idx} className="flex justify-between items-center p-2 hover:bg-gray-50 rounded">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 bg-black text-white rounded-full flex items-center justify-center font-bold text-xs">{idx + 1}</div>
+                                            <span className="font-medium">{packer.email}</span>
                                         </div>
-                                    )) : <p className="text-gray-500">Chưa có đơn hàng nào được đánh dấu bọc.</p>}
-                                </div>
-                             </div>
+                                        <div className="text-right">
+                                            <p className="font-bold">{packer.count} đơn</p>
+                                            <p className="text-xs text-gray-500">{formatCurrency(packer.revenue)}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                                {stats.packerStats.length === 0 && <p className="text-gray-400 text-sm">Chưa có dữ liệu.</p>}
+                            </div>
                         </div>
                     </div>
                 )}
 
-                {/* --- ORDERS (AI CŨNG THẤY) --- */}
+                {/* --- ORDERS --- */}
                 {activeTab === 'orders' && (
-                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-140px)]">
-                        <div className="lg:col-span-1 bg-white rounded-lg shadow overflow-hidden flex flex-col">
-                            {/* THANH CÔNG CỤ SẮP XẾP & CHUYỂN CHẾ ĐỘ */}
-                            <div className="p-3 border-b bg-gray-50 flex flex-col gap-3">
-                                {/* Tab chuyển đổi Đang xử lý / Lịch sử */}
-                                <div className="flex bg-gray-200 rounded-lg p-1">
-                                    <button 
-                                        onClick={() => { setOrderViewMode('active'); setSelectedOrder(null); }}
-                                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${orderViewMode === 'active' ? 'bg-white text-blue-600 shadow' : 'text-gray-600 hover:text-gray-800'}`}
-                                    >
-                                        Đang xử lý ({activeOrders.length})
-                                    </button>
-                                    <button 
-                                        onClick={() => { setOrderViewMode('history'); setSelectedOrder(null); }}
-                                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${orderViewMode === 'history' ? 'bg-white text-gray-800 shadow' : 'text-gray-600 hover:text-gray-800'}`}
-                                    >
-                                        Lịch sử ({historyOrders.length})
-                                    </button>
-                                </div>
-
-                                <div className="flex gap-2">
-                                    <button onClick={() => setSortMode('newest')} className={`flex-1 py-2 text-xs font-bold rounded ${sortMode === 'newest' ? 'bg-white border-luvin-pink text-luvin-pink border' : 'bg-gray-200'}`}>Mới nhất</button>
-                                    <button onClick={() => setSortMode('urgent')} className={`flex-1 py-2 text-xs font-bold rounded ${sortMode === 'urgent' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}>Cần làm gấp 🔥</button>
-                                </div>
+                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-100px)]">
+                        {/* LEFT: Order List (Grid 4 cols) */}
+                        <div className="lg:col-span-4 flex flex-col border-r border-gray-200 pr-6">
+                            <div className="flex bg-gray-100 p-1 rounded-lg mb-4">
+                                <button onClick={() => { setOrderViewMode('active'); setSelectedOrder(null); }} className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${orderViewMode === 'active' ? 'bg-white text-black shadow' : 'text-gray-500'}`}>Cần làm ({activeOrders.length})</button>
+                                <button onClick={() => { setOrderViewMode('history'); setSelectedOrder(null); }} className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${orderViewMode === 'history' ? 'bg-white text-black shadow' : 'text-gray-500'}`}>Lịch sử ({historyOrders.length})</button>
                             </div>
                             
-                            {/* DANH SÁCH ĐƠN HÀNG */}
-                            <div className="overflow-y-auto flex-grow">
+                            <div className="overflow-y-auto flex-grow pr-2 space-y-3">
                                 {displayOrders.length > 0 ? displayOrders.map(order => (
-                                    <div 
-                                        key={order.id} 
-                                        onClick={() => setSelectedOrder(order)} 
-                                        className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${selectedOrder?.id === order.id ? 'bg-pink-50 border-l-4 border-luvin-pink' : ''} ${order.isUrgent ? 'bg-red-50' : ''}`}
-                                    >
-                                        <div className="flex justify-between mb-1">
-                                            <span className="font-bold text-gray-800 flex items-center gap-1">
-                                                {order.isUrgent && <span>🔥</span>} {order.id}
-                                            </span>
-                                            <span className={`text-xs px-2 rounded ${order.adminDeadline ? 'bg-red-100 text-red-800 font-bold' : 'bg-gray-100 text-gray-500'}`}>
-                                                {order.adminDeadline ? `Hạn chốt: ${formatDate(order.adminDeadline)}` : `Khách hẹn: ${formatDate(order.delivery.date)}`}
-                                            </span>
+                                    <div key={order.id} onClick={() => setSelectedOrder(order)} className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedOrder?.id === order.id ? 'ring-2 ring-black border-transparent' : 'hover:border-gray-400'} ${order.isUrgent ? 'bg-red-50 border-red-200' : 'bg-white'}`}>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <span className="font-bold text-sm">{order.id}</span>
+                                            {order.isUrgent && <span className="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">GẤP</span>}
                                         </div>
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-gray-600">{order.customer.name}</span>
-                                            {/* Ẩn doanh thu với kho */}
-                                            <span className="font-bold text-luvin-pink">
-                                                {userRole === 'admin' ? formatCurrency(order.totalPrice) : `${order.items.length} SP`}
-                                            </span>
+                                        <div className="flex justify-between items-center text-xs text-gray-600">
+                                            <span>{order.customer.name}</span>
+                                            <span className={`px-2 py-0.5 rounded border ${getStatusColor(order.status)}`}>{order.status}</span>
+                                        </div>
+                                        <div className="mt-2 text-xs text-gray-400 flex justify-between">
+                                            <span>{formatDate(order.createdAt)}</span>
+                                            {userRole === 'admin' && <span className="text-black font-bold">{formatCurrency(order.totalPrice)}</span>}
                                         </div>
                                     </div>
-                                )) : (
-                                    <div className="p-8 text-center text-gray-400 text-sm">
-                                        {orderViewMode === 'active' ? 'Không có đơn cần xử lý' : 'Chưa có lịch sử đơn hàng'}
-                                    </div>
-                                )}
+                                )) : <div className="text-center py-10 text-gray-400 text-sm">Không có đơn hàng nào.</div>}
                             </div>
                         </div>
         
-                        {/* Cột phải: Chi tiết */}
-                        <div className="lg:col-span-2 bg-white rounded-lg shadow p-6 overflow-y-auto">
+                        {/* RIGHT: Detail View (Grid 8 cols) */}
+                        <div className="lg:col-span-8 overflow-y-auto pl-2">
                             {selectedOrder ? (
-                                <div>
-                                    <div className="flex justify-between items-center border-b pb-4 mb-4"><h2 className="text-xl font-bold">{selectedOrder.id} <span className="text-sm font-normal text-gray-500">({selectedOrder.status})</span></h2><label className="flex items-center cursor-pointer bg-gray-100 px-3 py-2 rounded hover:bg-gray-200"><input type="checkbox" className="mr-2" checked={selectedOrder.isUrgent || false} onChange={(e) => handleUpdate(selectedOrder.id, { isUrgent: e.target.checked }, false)} /><span className="text-sm font-bold text-red-600">Đánh dấu Gấp 🔥</span></label></div>
-                                    
-                                    {/* NÚT BỌC HÀNG (CHỈ HIỆN VỚI KHO VÀ KHI ĐƠN CHƯA XONG) */}
-                                    {userRole === 'warehouse' && !selectedOrder.packedAt ? (
-                                        <div className="bg-green-50 border border-green-200 p-4 rounded-lg mb-6 flex items-center justify-between">
-                                            <div><h3 className="font-bold text-green-800">Trạng thái: Chưa đóng gói</h3><p className="text-sm text-green-600">Hãy kiểm tra kỹ sản phẩm trước khi đóng.</p></div>
-                                            <button onClick={handleConfirmPacked} className="bg-green-600 text-white px-6 py-3 rounded-lg font-bold shadow hover:bg-green-700 transition-transform transform hover:scale-105">📦 Xác nhận ĐÃ BỌC XONG</button>
+                                <div className="bg-white border rounded-xl p-6 shadow-sm">
+                                    {/* Header Detail */}
+                                    <div className="flex justify-between items-start border-b border-gray-100 pb-6 mb-6">
+                                        <div>
+                                            <h2 className="text-2xl font-bold mb-1">{selectedOrder.id}</h2>
+                                            <p className="text-sm text-gray-500">
+                                                Ngày tạo: {formatDateTime(selectedOrder.createdAt)} 
+                                                {selectedOrder.adminDeadline && <span className="ml-3 text-red-600 font-bold">Deadline: {formatDate(selectedOrder.adminDeadline)}</span>}
+                                            </p>
                                         </div>
-                                    ) : selectedOrder.packedAt ? (
-                                        <div className="bg-gray-100 border border-gray-300 p-4 rounded-lg mb-6"><p className="text-gray-600 font-medium">✅ Đã bọc bởi: <span className="font-bold text-gray-800">{selectedOrder.packerEmail}</span></p><p className="text-xs text-gray-500">Vào lúc: {formatDateTime(selectedOrder.packedAt)}</p></div>
-                                    ) : null}
+                                        <div className="flex gap-2">
+                                            {userRole === 'admin' && (
+                                                <label className="flex items-center gap-2 cursor-pointer bg-gray-100 px-3 py-2 rounded hover:bg-gray-200">
+                                                    <input type="checkbox" checked={selectedOrder.isUrgent || false} onChange={(e) => handleUpdate(selectedOrder.id, { isUrgent: e.target.checked }, false)} />
+                                                    <span className="text-xs font-bold">Đánh dấu Gấp</span>
+                                                </label>
+                                            )}
+                                        </div>
+                                    </div>
 
-                                    <div className="bg-blue-50 p-4 rounded border border-blue-100 mb-6 grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-blue-800 mb-1">Ghi chú nội bộ</label><input type="text" className="w-full p-2 border rounded text-sm" placeholder="Ví dụ: Khách quen..." value={noteInput} onChange={(e) => setNoteInput(e.target.value)} /></div><div><label className="block text-xs font-bold text-blue-800 mb-1">Ngày CHỐT phải gửi (Admin)</label><input type="date" className="w-full p-2 border rounded text-sm" value={adminDeadlineInput} onChange={(e) => setAdminDeadlineInput(e.target.value)} /></div><div className="md:col-span-2 text-right"><button onClick={handleSaveAdminInfo} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700">Lưu thông tin Admin</button></div></div>
-                                    <div className="grid grid-cols-2 gap-6 text-sm mb-6"><div><h3 className="font-bold border-b pb-1 mb-2">Khách hàng</h3><p>Tên: {selectedOrder.customer.name}</p><p>SĐT: {selectedOrder.customer.phone}</p><p>ĐC: {selectedOrder.customer.address}</p><p className="mt-2 bg-yellow-50 p-2 italic text-gray-600 border border-yellow-100">"{selectedOrder.delivery.notes || 'Không có ghi chú'}"</p></div><div><h3 className="font-bold border-b pb-1 mb-2">Thanh toán</h3><p>Tổng: <span className="text-luvin-pink font-bold">{userRole === 'admin' ? formatCurrency(selectedOrder.totalPrice) : '***'}</span></p><p>Cần thu (COD): <span className="text-red-600 font-bold">{formatCurrency(selectedOrder.amountToPay)}</span></p><p>Vận chuyển: {selectedOrder.shipping.method}</p></div></div>
-                                    <div className="bg-gray-100 p-4 rounded flex justify-center">{selectedOrder.items[0]?.previewImageUrl ? <img src={selectedOrder.items[0].previewImageUrl} className="max-h-64 shadow-lg bg-white" /> : <span className="text-gray-400">Không có ảnh</span>}</div>
-                                    
-                                    {/* ADMIN MỚI ĐƯỢC ĐỔI TRẠNG THÁI THỦ CÔNG KHÁC */}
+                                    {/* Nút Bọc Hàng (Kho) */}
+                                    {userRole === 'warehouse' && !selectedOrder.packedAt && (
+                                        <div className="bg-green-50 border border-green-200 p-4 rounded-lg mb-8 flex items-center justify-between">
+                                            <div><h3 className="font-bold text-green-800">Sẵn sàng đóng gói?</h3><p className="text-xs text-green-600">Kiểm tra kỹ sản phẩm theo danh sách bên dưới.</p></div>
+                                            <button onClick={handleConfirmPacked} className="bg-green-600 text-white px-6 py-3 rounded-lg font-bold shadow-lg hover:bg-green-700 active:transform active:scale-95 transition-all">📦 XÁC NHẬN ĐÃ BỌC</button>
+                                        </div>
+                                    )}
+
+                                    {/* Thông tin người bọc (Hiện cho cả 2) */}
+                                    {selectedOrder.packedAt && (
+                                        <div className="bg-gray-50 border border-gray-200 p-3 rounded mb-6 flex items-center gap-3">
+                                            <span className="text-xl">✅</span>
+                                            <div className="text-sm">
+                                                <p className="font-bold text-gray-800">Đã đóng gói bởi: {selectedOrder.packerEmail}</p>
+                                                <p className="text-gray-500">Thời gian: {formatDateTime(selectedOrder.packedAt)}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Ghi chú nội bộ (Admin) */}
+                                    <div className="mb-6">
+                                        <p className="text-xs font-bold text-gray-400 uppercase mb-2">Ghi chú nội bộ</p>
+                                        <div className="flex gap-2">
+                                            <input type="text" className="flex-grow p-2 border rounded text-sm bg-yellow-50 border-yellow-200" placeholder="Ghi chú cho đơn này..." value={noteInput} onChange={(e) => setNoteInput(e.target.value)} />
+                                            {userRole === 'admin' && (
+                                                <>
+                                                    <input type="date" className="p-2 border rounded text-sm" value={adminDeadlineInput} onChange={(e) => setAdminDeadlineInput(e.target.value)} />
+                                                    <button onClick={handleSaveAdminInfo} className="bg-black text-white px-4 rounded text-sm font-bold">Lưu</button>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Nội dung chính */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                                        <div>
+                                            <h3 className="font-bold border-b pb-2 mb-3">Thông tin khách hàng</h3>
+                                            <div className="text-sm space-y-2">
+                                                <p><span className="text-gray-500">Tên:</span> {selectedOrder.customer.name}</p>
+                                                <p><span className="text-gray-500">SĐT:</span> {selectedOrder.customer.phone}</p>
+                                                <p><span className="text-gray-500">Địa chỉ:</span> {selectedOrder.customer.address}</p>
+                                                {selectedOrder.delivery.notes && <p className="text-red-600 bg-red-50 p-2 rounded mt-2">Note: {selectedOrder.delivery.notes}</p>}
+                                            </div>
+                                        </div>
+                                        {/* ẢNH SẢN PHẨM */}
+                                        <div>
+                                            <h3 className="font-bold border-b pb-2 mb-3">Ảnh thiết kế</h3>
+                                            <div className="bg-gray-100 rounded-lg p-2 flex items-center justify-center min-h-[150px]">
+                                                {selectedOrder.items[0]?.previewImageUrl ? (
+                                                    <img src={selectedOrder.items[0].previewImageUrl} alt="Design" className="max-h-48 object-contain shadow-sm bg-white" />
+                                                ) : <span className="text-gray-400 text-sm">Không có ảnh</span>}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* PICKING LIST - QUAN TRỌNG CHO KHO */}
+                                    <PickingList items={selectedOrder.items} allParts={products} />
+
+                                    {/* Admin Actions */}
                                     {userRole === 'admin' && (
-                                        <div className="mt-4 flex flex-wrap gap-2 justify-center">{['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng', 'Hủy đơn'].map(st => (<button key={st} onClick={() => handleUpdate(selectedOrder.id, { status: st })} className={`px-4 py-2 text-sm font-bold text-white rounded transition-colors ${getStatusColor(st)} ${selectedOrder.status === st ? 'opacity-100 ring-2 ring-offset-2 ring-luvin-pink' : 'opacity-80'}`}>{st}</button>))}</div>
+                                        <div className="mt-8 pt-6 border-t border-gray-100">
+                                            <p className="text-xs text-gray-400 mb-3 text-center">Thay đổi trạng thái thủ công</p>
+                                            <div className="flex flex-wrap justify-center gap-2">
+                                                {['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng', 'Hủy đơn'].map(st => (
+                                                    <button key={st} onClick={() => handleUpdate(selectedOrder.id, { status: st })} className={`px-3 py-1.5 text-xs font-bold border rounded hover:bg-gray-50 ${selectedOrder.status === st ? 'bg-black text-white border-black hover:bg-gray-800' : 'text-gray-600'}`}>{st}</button>
+                                                ))}
+                                            </div>
+                                        </div>
                                     )}
                                 </div>
-                            ) : <div className="flex items-center justify-center h-full text-gray-400">Chọn đơn hàng</div>}
+                            ) : (
+                                <div className="h-full flex flex-col items-center justify-center text-gray-300 border-2 border-dashed border-gray-200 rounded-xl">
+                                    <p className="mt-4">Chọn một đơn hàng để xem chi tiết</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -426,17 +466,32 @@ const AdminPage: React.FC = () => {
                 {/* --- PRODUCTS --- */}
                 {activeTab === 'products' && userRole === 'admin' && (
                     <div>
-                        <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
-                            <h2 className="text-lg font-bold text-gray-800">Kho Sản phẩm ({products.length})</h2>
-                            <div className="flex flex-grow md:flex-grow-0 gap-2 w-full md:w-auto"><input type="text" placeholder="Tìm tên..." className="p-2 border rounded text-sm flex-grow" value={productSearch} onChange={e => setProductSearch(e.target.value)} /><select className="p-2 border rounded text-sm" value={productCategory} onChange={e => setProductCategory(e.target.value)}><option value="all">Tất cả loại</option><option value="hair">Tóc</option><option value="face">Mặt</option><option value="shirt">Áo</option><option value="pants">Quần</option><option value="accessory">Phụ kiện</option><option value="pet">Thú cưng</option></select></div>
-                            <div className="flex gap-2">{products.length === 0 && <button onClick={handleSeedData} className="bg-yellow-500 text-white px-3 py-2 rounded text-sm font-bold">🔄 Đồng bộ</button>}<button onClick={() => { setEditingPart(null); setIsEditingProduct(true); }} className="bg-luvin-pink text-white px-3 py-2 rounded text-sm font-bold">+ Thêm</button></div>
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="flex gap-4 w-full max-w-md">
+                                <input type="text" placeholder="Tìm tên sản phẩm..." className="flex-grow p-2 border rounded text-sm" value={productSearch} onChange={e => setProductSearch(e.target.value)} />
+                                <select className="p-2 border rounded text-sm" value={productCategory} onChange={e => setProductCategory(e.target.value)}><option value="all">Tất cả</option><option value="hair">Tóc</option><option value="face">Mặt</option><option value="shirt">Áo</option><option value="pants">Quần</option><option value="accessory">Phụ kiện</option><option value="pet">Thú cưng</option></select>
+                            </div>
+                            <button onClick={() => { setEditingPart(null); setIsEditingProduct(true); }} className="bg-black text-white px-4 py-2 rounded text-sm font-bold">+ Thêm mới</button>
                         </div>
-                        <div className="bg-white shadow overflow-hidden rounded-lg"><div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 p-4 max-h-[75vh] overflow-y-auto">{filteredProducts.map(part => (<div key={part.id} className="border rounded p-3 flex flex-col items-center group hover:shadow-md relative"><div className="w-full aspect-square bg-gray-50 mb-2"><img src={part.imageUrl} className="w-full h-full object-contain" /></div><h4 className="font-bold text-xs text-center truncate w-full" title={part.name}>{part.name}</h4><span className="text-[10px] bg-gray-100 px-1 rounded text-gray-500 mt-1">{part.type}</span><p className="text-sm text-luvin-pink font-bold mt-1">{formatCurrency(part.price)}</p><div className="absolute inset-0 bg-black/40 hidden group-hover:flex items-center justify-center gap-2 rounded transition-all"><button onClick={() => { setEditingPart(part); setIsEditingProduct(true); }} className="bg-white text-blue-600 p-2 rounded-full">✏️</button><button onClick={() => handleDeleteProduct(part.id)} className="bg-white text-red-600 p-2 rounded-full">🗑️</button></div></div>))}{filteredProducts.length === 0 && <p className="col-span-full text-center py-10 text-gray-400">Không tìm thấy sản phẩm nào.</p>}</div></div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4">
+                            {filteredProducts.map(part => (
+                                <div key={part.id} className="border rounded-lg p-3 flex flex-col items-center group hover:border-black transition-colors relative">
+                                    <div className="w-full aspect-square bg-gray-50 mb-2 rounded"><img src={part.imageUrl} className="w-full h-full object-contain" /></div>
+                                    <p className="font-bold text-xs text-center truncate w-full">{part.name}</p>
+                                    <p className="text-[10px] text-gray-500 capitalize">{part.type}</p>
+                                    <p className="text-xs font-bold mt-1">{formatCurrency(part.price)}</p>
+                                    <div className="absolute inset-0 bg-white/90 hidden group-hover:flex items-center justify-center gap-2">
+                                        <button onClick={() => { setEditingPart(part); setIsEditingProduct(true); }} className="text-blue-600 text-xs font-bold underline">Sửa</button>
+                                        <button onClick={() => handleDeleteProduct(part.id)} className="text-red-600 text-xs font-bold underline">Xóa</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
                 {isEditingProduct && <ProductForm initialData={editingPart} onSave={handleSaveProduct} onCancel={() => setIsEditingProduct(false)} />}
-                {loading && <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50"><div className="bg-white p-4 rounded font-bold">Đang xử lý...</div></div>}
+                {loading && <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50"><div className="text-black font-bold animate-pulse">Đang xử lý...</div></div>}
             </main>
         </div>
     );
