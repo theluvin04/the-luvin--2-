@@ -4,8 +4,9 @@ import { getAllOrders, updateOrder } from '../services/orderService';
 import { getAllParts, addPart, updatePart, deletePart, seedDatabase } from '../services/productService';
 import { auth } from '../config/firebase';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'; 
+import { adminQuickOrder } from '../services/orderService'; // Import adminQuickOrder
 import type { Order, LegoPart, FrameConfig } from '../types';
-import { LEGO_PARTS, FRAME_OPTIONS } from '../constants';
+import { LEGO_PARTS, FRAME_OPTIONS, COLLECTION_TEMPLATES } from '../constants'; // Import COLLECTION_TEMPLATES
 
 // --- HELPER GLOBALS ---
 const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -19,6 +20,37 @@ const getStatusColor = (status: string) => {
         default: return 'bg-gray-100 text-gray-700 border-gray-200';
     }
 };
+
+// --- CHỨC NĂNG TÍNH GIÁ ĐƠN GIẢN (Cần cho thống kê và adminQuickOrder) ---
+const CHARACTER_BASE_PRICE = 10000;
+const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>) => {
+    const frame = FRAME_OPTIONS.find(f => f.id === config.frameId) || FRAME_OPTIONS[0];
+    let total = frame.price;
+
+    total += config.characters.length * CHARACTER_BASE_PRICE;
+    
+    config.characters.forEach((char) => {
+        total += char.customPrintPrice || 0;
+        total += char.hair?.price || 0;
+        total += char.hat?.price || 0;
+        total += char.shirt?.price || 0;
+        total += char.selectedShirtColor?.price || 0;
+        total += char.pants?.price || 0;
+        total += char.selectedPantsColor?.price || 0;
+    });
+
+    config.draggableItems.forEach(item => {
+        // Find part, safely handling cases where part is not found (e.g., charm with no price part)
+        const part = allParts[item.partId];
+        if (part) {
+            total += part.price;
+        }
+    });
+
+    return { totalPrice: total };
+};
+// --- END TÍNH GIÁ ---
+
 
 // --- CẤU HÌNH PHÂN QUYỀN ---
 const USER_ROLES: Record<string, 'admin' | 'warehouse'> = {
@@ -128,6 +160,9 @@ const AdminPage: React.FC = () => {
     const [adminDeadlineInput, setAdminDeadlineInput] = useState('');
     const [productSearch, setProductSearch] = useState('');
     const [productCategory, setProductCategory] = useState('all');
+    
+    // State cho Link liên hệ mới
+    const [contactLinkInput, setContactLinkInput] = useState(''); //
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -169,6 +204,7 @@ const AdminPage: React.FC = () => {
         if (selectedOrder) {
             setNoteInput(selectedOrder.internalNotes || '');
             setAdminDeadlineInput(selectedOrder.adminDeadline || '');
+            setContactLinkInput(selectedOrder.contactLink || ''); // Load contact link
         }
     }, [selectedOrder]);
 
@@ -195,7 +231,15 @@ const AdminPage: React.FC = () => {
         } 
     };
     
-    const handleSaveAdminInfo = () => { if (selectedOrder) { handleUpdate(selectedOrder.id, { internalNotes: noteInput, adminDeadline: adminDeadlineInput }); } };
+    const handleSaveAdminInfo = () => { 
+        if (selectedOrder) { 
+            handleUpdate(selectedOrder.id, { 
+                internalNotes: noteInput, 
+                adminDeadline: adminDeadlineInput, 
+                contactLink: contactLinkInput 
+            }); // Save contact link
+        } 
+    };
 
     const handleConfirmPacked = () => {
         if (selectedOrder && currentUser) {
@@ -209,11 +253,51 @@ const AdminPage: React.FC = () => {
             }
         }
     };
+    
+    // Logic for quick order
+    const handleQuickOrder = async () => { 
+        if (confirm("Xác nhận tạo đơn hàng nhanh (Offline/Mẫu Wedding Day)?")) {
+            setLoading(true);
+            const result = await adminQuickOrder(); // Call the service function
+            setLoading(false);
+            if (result.success) {
+                alert(`Đã tạo đơn hàng nhanh thành công: ${result.data?.id}`);
+                fetchOrders(); // Refresh order list
+            } else {
+                alert("Lỗi tạo đơn hàng nhanh. Vui lòng kiểm tra console.");
+            }
+        }
+    }
+    
+    // Logic for removing draggable item (simplifying edit feature)
+    const handleRemoveDraggableItem = async (itemId: number) => {
+        if (selectedOrder && selectedOrder.items[0] && confirm("Xác nhận xóa vật phẩm này khỏi đơn hàng?")) {
+            const updatedItems = selectedOrder.items.map(frame => ({
+                ...frame,
+                draggableItems: frame.draggableItems.filter(item => item.id !== itemId)
+            }));
+            
+            // Re-calculate price (assumes only one frame per order for now, which is true for this app)
+            const allPartsMap = products.reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>);
+            const newPrice = calculatePrice(updatedItems[0], allPartsMap).totalPrice;
+            
+            await handleUpdate(selectedOrder.id, { 
+                items: updatedItems,
+                totalPrice: newPrice, // Update total price
+                amountToPay: newPrice // Simplify: Assume amountToPay is also updated (if same as total)
+            }, false); 
+            alert("Đã xóa vật phẩm.");
+            fetchOrders(); // Refresh order list
+        }
+    }
+
 
     const formatDate = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleDateString('vi-VN');
     const formatDateTime = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleString('vi-VN');
 
     const stats = useMemo(() => {
+        const allPartsMap = products.reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>);
+        
         const start = new Date(startDate); start.setHours(0,0,0,0);
         const end = new Date(endDate); end.setHours(23,59,59,999);
 
@@ -231,6 +315,18 @@ const AdminPage: React.FC = () => {
         const pendingOrders = filteredOrders.filter(o => o.status === 'Chờ thanh toán' || o.status === 'Đang xử lý').length;
         const urgentOrders = filteredOrders.filter(o => o.isUrgent).length;
         
+        // --- MỚI: Thống kê Charm/Phụ kiện ---
+        const itemCounts = filteredOrders.reduce((acc, order) => {
+            order.items.forEach(frame => {
+                frame.draggableItems.forEach(item => {
+                    const type = item.type;
+                    acc[type] = (acc[type] || 0) + 1;
+                });
+            });
+            return acc;
+        }, {} as Record<'accessory' | 'pet' | 'charm', number>);
+        // --- END Thống kê Charm/Phụ kiện ---
+        
         const packerStats = Object.values(filteredOrders.reduce((acc, order) => {
             if (order.packerEmail) {
                 const email = order.packerEmail;
@@ -241,8 +337,8 @@ const AdminPage: React.FC = () => {
             return acc;
         }, {} as Record<string, { email: string, count: number, revenue: number }>)).sort((a, b) => b.count - a.count);
 
-        return { totalRevenue, totalOrders, pendingOrders, urgentOrders, packerStats };
-    }, [orders, startDate, endDate, quickDateFilter]);
+        return { totalRevenue, totalOrders, pendingOrders, urgentOrders, packerStats, itemCounts };
+    }, [orders, startDate, endDate, quickDateFilter, products]);
 
     const filteredProducts = useMemo(() => {
         return products.filter(p => {
@@ -289,6 +385,17 @@ const AdminPage: React.FC = () => {
                     </div>
                 </div>
 
+                {/* --- CHỨC NĂNG ADMIN NỘI BỘ --- */}
+                {userRole === 'admin' && (
+                    <div className="mb-6 pt-2 border-b border-gray-200 flex justify-between items-center">
+                        <p className="text-xs font-bold text-gray-400 uppercase">Công cụ nội bộ</p>
+                        <button onClick={handleQuickOrder} className="bg-green-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-green-700 disabled:opacity-50" disabled={loading}>
+                            {loading ? 'Đang tạo...' : '⭐ Tạo Đơn Hàng Nhanh'}
+                        </button>
+                    </div>
+                )}
+
+
                 {/* --- DASHBOARD --- */}
                 {activeTab === 'dashboard' && userRole === 'admin' && (
                     <div className="space-y-8">
@@ -314,6 +421,25 @@ const AdminPage: React.FC = () => {
                             <div className="p-4 border rounded-xl"><p className="text-gray-500 text-xs uppercase font-bold mb-1">Đơn hàng</p><p className="text-2xl font-bold text-black">{stats.totalOrders}</p></div>
                             <div className="p-4 border rounded-xl"><p className="text-gray-500 text-xs uppercase font-bold mb-1">Chờ xử lý</p><p className="text-2xl font-bold text-black">{stats.pendingOrders}</p></div>
                             <div className="p-4 border rounded-xl bg-red-50 border-red-100"><p className="text-red-600 text-xs uppercase font-bold mb-1">Gấp / Ưu tiên</p><p className="text-2xl font-bold text-red-600">{stats.urgentOrders}</p></div>
+                        </div>
+                        
+                        {/* Thống kê Charm/Phụ kiện */}
+                        <div className="border rounded-xl p-6">
+                            <h3 className="text-sm font-bold uppercase text-gray-500 mb-4">Thống kê vật phẩm trang trí (đã bán)</h3>
+                            <div className="grid grid-cols-3 gap-4 text-center">
+                                <div className="p-3 bg-gray-100 rounded-lg">
+                                    <p className="text-xs text-gray-500">Phụ kiện (Accessory)</p>
+                                    <p className="font-bold text-2xl">{stats.itemCounts.accessory || 0}</p>
+                                </div>
+                                <div className="p-3 bg-gray-100 rounded-lg">
+                                    <p className="text-xs text-gray-500">Thú cưng (Pet)</p>
+                                    <p className="font-bold text-2xl">{stats.itemCounts.pet || 0}</p>
+                                </div>
+                                <div className="p-3 bg-gray-100 rounded-lg">
+                                    <p className="text-xs text-gray-500">Charm (Ảnh nhỏ)</p>
+                                    <p className="font-bold text-2xl">{stats.itemCounts.charm || 0}</p>
+                                </div>
+                            </div>
                         </div>
 
                         {/* Packer Stats */}
@@ -409,6 +535,16 @@ const AdminPage: React.FC = () => {
                                             </div>
                                         </div>
                                     )}
+                                    
+                                    {/* Link Liên hệ khách hàng (MỚI) */}
+                                    <div className="mb-6">
+                                        <p className="text-xs font-bold text-gray-400 uppercase mb-2">Link liên hệ (Messenger, Zalo,...)</p>
+                                        <div className="flex gap-2">
+                                            <input type="url" className="flex-grow p-2 border rounded text-sm bg-blue-50 border-blue-200" placeholder="https://m.me/..." value={contactLinkInput} onChange={(e) => setContactLinkInput(e.target.value)} disabled={userRole === 'warehouse'} />
+                                            {selectedOrder.contactLink && <a href={selectedOrder.contactLink} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold flex items-center hover:bg-blue-700">Mở link</a>}
+                                            {userRole === 'admin' && <button onClick={handleSaveAdminInfo} className="bg-black text-white px-4 rounded text-sm font-bold">Lưu</button>}
+                                        </div>
+                                    </div>
 
                                     {/* Ghi chú nội bộ (Admin) */}
                                     <div className="mb-6">
@@ -448,6 +584,21 @@ const AdminPage: React.FC = () => {
 
                                     {/* PICKING LIST - QUAN TRỌNG CHO KHO */}
                                     <PickingList items={selectedOrder.items} allParts={products} />
+
+                                    {/* Khung Chỉnh sửa Vật phẩm Rời (Chỉ cho Admin) */}
+                                    {userRole === 'admin' && selectedOrder.items[0]?.draggableItems.length > 0 && (
+                                        <div className="mt-8 pt-6 border-t border-gray-100">
+                                            <p className="text-xs text-gray-400 mb-3 font-bold uppercase">Công cụ chỉnh sửa nhanh (Vật phẩm rời)</p>
+                                            <div className="space-y-3">
+                                                {selectedOrder.items[0].draggableItems.map(item => (
+                                                    <div key={item.id} className="flex justify-between items-center bg-gray-50 p-3 rounded border border-gray-200">
+                                                        <span className="text-sm font-medium">{products.find(p => p.id === item.partId)?.name || (item.type === 'charm' ? 'Charm (Ảnh riêng)' : '---')} ({item.type})</span>
+                                                        <button onClick={() => handleRemoveDraggableItem(item.id)} className="text-red-600 text-xs font-bold px-3 py-1 bg-white border border-red-300 rounded hover:bg-red-50">Xóa</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* Admin Actions */}
                                     {userRole === 'admin' && (

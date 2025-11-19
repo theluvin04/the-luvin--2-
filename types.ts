@@ -27,7 +27,7 @@ export interface LegoPart {
   name: string;
   price: number; 
   imageUrl: string;
-  type: 'hair' | 'face' | 'shirt' | 'pants' | 'accessory' | 'pet' | 'hat';
+  type: 'hair' | 'face' | 'shirt' | 'pants' | 'accessory' | 'pet' | 'hat' | 'charm';
   widthCm: number;
   heightCm: number;
   colors?: OutfitColor[];
@@ -51,32 +51,28 @@ export interface LegoCharacterConfig {
   y: number; 
   rotation: number; 
   scale: number; 
-  previousHair?: LegoPart; 
 }
 
 export interface TextConfig {
   id: number;
   content: string;
-  font: string;
-  size: number; 
+  x: number;
+  y: number;
+  fontSize: number;
+  fontFamily: string;
   color: string;
-  x: number; 
-  y: number; 
-  rotation: number; 
-  scale: number; 
-  background: boolean;
-  textAlign?: 'left' | 'center' | 'right';
-  width?: number; 
+  rotation: number;
 }
 
 export interface DraggableItem {
-    id: number;
-    partId: string; 
-    type: 'accessory' | 'pet' | 'charm';
-    x: number; 
-    y: number; 
-    rotation: number; 
-    scale: number; 
+  id: number;
+  type: 'accessory' | 'pet' | 'charm'; 
+  partId: string; 
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+  imageUrl?: string; 
 }
 
 export interface BackgroundConfig {
@@ -118,41 +114,16 @@ export interface Order {
   totalPrice: number;
   amountToPay: number;
   
-  // --- MỚI THÊM ---
+  // --- MỚI THÊM: Thông tin quản lý Admin ---
   internalNotes?: string; // Ghi chú nội bộ của Admin
   isUrgent?: boolean;     // Cờ đánh dấu đơn gấp thủ công
-  // ... (các phần trên giữ nguyên)
-
-export interface Order {
-  id: string;
-  status: string;
-  customer: {
-    name: string;
-    phone: string;
-    email: string;
-    address: string;
-  };
-  delivery: {
-    date: string;
-    notes: string;
-  };
-  items: FrameConfig[];
-  addGiftBox: boolean;
-  shipping: {
-    method: 'standard' | 'express' | 'bookship';
-    fee: number;
-  };
-  payment: {
-    method: 'deposit' | 'full';
-  };
-  totalPrice: number;
-  amountToPay: number;
+  adminDeadline?: string; // Deadline cho Admin
+  contactLink?: string;   // Link liên hệ với khách hàng (Messenger, Zalo,...)
   
-  // Ghi chú nội bộ & Cờ gấp
-  internalNotes?: string; 
-  isUrgent?: boolean;
+  // Thông tin bọc hàng (Mới)
+  packerEmail?: string;
+  packedAt?: string; // ISO String
   
-  // --- MỚI THÊM: Deadline do Admin tự đặt ---
-  adminDeadline?: string; 
-}
+  // Thời gian tạo đơn
+  createdAt: string; 
 }

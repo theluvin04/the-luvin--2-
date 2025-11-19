@@ -1840,8 +1840,14 @@ const App: React.FC = () => {
     // Hàm đặt hàng mới (đã kết nối Firebase + Email)
     const handlePlaceOrder = async (orderData: Omit<Order, 'status'>) => {
         showToast('Đang gửi đơn hàng...', 'success');
+        
+        // Thêm trường contactLink mặc định (MỚI)
+        const orderDataWithContactLink = {
+            ...orderData,
+            contactLink: '', 
+        };
 
-        const result = await createOrder(orderData);
+        const result = await createOrder(orderDataWithContactLink);
 
         if (result.success && result.data) {
             // Gửi email xác nhận (tính năng mới)
