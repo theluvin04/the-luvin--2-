@@ -7,6 +7,19 @@ import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebas
 import type { Order, LegoPart, FrameConfig } from '../types';
 import { LEGO_PARTS, FRAME_OPTIONS } from '../constants';
 
+// --- HELPER GLOBALS ---
+const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+
+const getStatusColor = (status: string) => {
+    switch (status) {
+        case 'Đã giao hàng': return 'bg-green-50 text-green-700 border-green-100';
+        case 'Đã xác nhận': case 'Đang xử lý': return 'bg-blue-50 text-blue-700 border-blue-100';
+        case 'Đang giao hàng': return 'bg-yellow-50 text-yellow-700 border-yellow-100';
+        case 'Hủy đơn': return 'bg-red-50 text-red-700 border-red-100';
+        default: return 'bg-gray-100 text-gray-700 border-gray-200';
+    }
+};
+
 // --- CẤU HÌNH PHÂN QUYỀN ---
 const USER_ROLES: Record<string, 'admin' | 'warehouse'> = {
     "theluvin.gifts@gmail.com": "admin",
@@ -28,35 +41,41 @@ const PickingList: React.FC<{ items: FrameConfig[]; allParts: LegoPart[] }> = ({
     const getFrameName = (id: string) => FRAME_OPTIONS.find(f => f.id === id)?.name || id;
 
     return (
-        <div className="bg-gray-50 border border-gray-200 rounded p-4 mt-4">
-            <h4 className="font-bold text-gray-800 border-b border-gray-300 pb-2 mb-3 uppercase text-xs tracking-wider">
-                📝 Chi tiết soạn hàng (Kho)
+        <div className="bg-white border border-gray-200 rounded-xl p-4 mt-4">
+            <h4 className="font-bold text-black border-b border-gray-200 pb-2 mb-3 uppercase text-xs tracking-wider">
+                📝 CHI TIẾT SOẠN HÀNG (KHO)
             </h4>
-            <div className="space-y-6">
+            <div className="space-y-4">
                 {items.map((frame, idx) => (
-                    <div key={idx} className="text-sm">
-                        <p className="font-bold text-blue-900 mb-2">
-                            #{idx + 1}. Khung: {getFrameName(frame.frameId)}
+                    <div key={idx} className="text-sm border-b border-gray-100 pb-4 last:border-b-0 last:pb-0">
+                        <p className="font-bold text-lg text-black mb-2">
+                            🖼️ Khung: {getFrameName(frame.frameId)}
                         </p>
                         
                         {/* Danh sách nhân vật */}
                         {frame.characters.map((char, cIdx) => (
-                            <div key={cIdx} className="ml-4 mb-2 pl-3 border-l-2 border-gray-300">
-                                <p className="font-semibold text-gray-700">NV {cIdx + 1}:</p>
-                                <ul className="list-disc list-inside text-gray-600 ml-2 grid grid-cols-2 gap-x-4">
-                                    <li>Tóc/Mũ: <span className="font-medium text-black">{getPartName(char.hair?.id || char.hat?.id)}</span></li>
-                                    <li>Mặt: <span className="font-medium text-black">{getPartName(char.face?.id)}</span></li>
-                                    <li>Áo: <span className="font-medium text-black">{getPartName(char.shirt?.id)}</span> {char.selectedShirtColor && `(${char.selectedShirtColor.name})`}</li>
-                                    <li>Quần: <span className="font-medium text-black">{getPartName(char.pants?.id)}</span> {char.selectedPantsColor && `(${char.selectedPantsColor.name})`}</li>
+                            <div key={cIdx} className="mb-3 p-3 rounded bg-gray-50 border border-gray-100"> 
+                                <p className="font-semibold text-gray-800 border-b border-gray-200 pb-1 mb-1">NV {cIdx + 1}:</p>
+                                <ul className="text-xs text-gray-700 ml-2 grid grid-cols-2 gap-y-1"> 
+                                    <li><span className="text-gray-500">Tóc/Mũ:</span> <span className="font-medium text-black">{getPartName(char.hair?.id || char.hat?.id)}</span></li>
+                                    <li><span className="text-gray-500">Mặt:</span> <span className="font-medium text-black">{getPartName(char.face?.id)}</span></li>
+                                    <li><span className="text-gray-500">Áo:</span> <span className="font-medium text-black">{getPartName(char.shirt?.id)}</span> {char.selectedShirtColor && <span className="text-xs text-gray-600">({char.selectedShirtColor.name})</span>}</li>
+                                    <li><span className="text-gray-500">Quần:</span> <span className="font-medium text-black">{getPartName(char.pants?.id)}</span> {char.selectedPantsColor && <span className="text-xs text-gray-600">({char.selectedPantsColor.name})</span>}</li>
                                 </ul>
+                                {/* Add custom print info if available */}
+                                {char.customPrintPrice && char.customPrintPrice > 0 && (
+                                    <p className="text-xs font-bold text-red-600 mt-2 p-1 bg-red-100/50 rounded inline-block">
+                                        ⚠️ In Yêu Cầu ({formatCurrency(char.customPrintPrice)})
+                                    </p>
+                                )}
                             </div>
                         ))}
 
                         {/* Phụ kiện rời */}
                         {frame.draggableItems.length > 0 && (
-                            <div className="ml-4 mt-2">
-                                <p className="font-semibold text-gray-700">Phụ kiện & Thú cưng:</p>
-                                <ul className="list-disc list-inside ml-2 text-gray-800">
+                            <div className="mt-4 p-3 rounded bg-gray-50 border border-gray-100">
+                                <p className="font-semibold text-gray-800 border-b border-gray-200 pb-1 mb-1 text-sm">Phụ kiện & Thú cưng:</p>
+                                <ul className="list-disc list-inside ml-4 text-sm text-black space-y-1">
                                     {frame.draggableItems.map((item, iIdx) => (
                                         <li key={iIdx}>{getPartName(item.partId, item.type)}</li>
                                     ))}
@@ -75,16 +94,6 @@ const ProductForm: React.FC<{ initialData?: LegoPart | null; onSave: (part: Lego
     const [formData, setFormData] = useState<LegoPart>(initialData || { id: `part_${Date.now()}`, name: '', price: 0, imageUrl: '', type: 'accessory', widthCm: 1, heightCm: 1 });
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => { const { name, value } = e.target; setFormData(prev => ({ ...prev, [name]: name === 'price' || name === 'widthCm' || name === 'heightCm' ? Number(value) : value })); };
     return ( <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"> <div className="bg-white p-6 rounded-lg shadow-xl w-96 max-h-[90vh] overflow-y-auto"> <h3 className="text-lg font-bold mb-4">{initialData ? 'Sửa sản phẩm' : 'Thêm sản phẩm mới'}</h3> <div className="space-y-3"> <div><label className="block text-xs font-bold text-gray-700">Tên hiển thị</label><input name="name" value={formData.name} onChange={handleChange} className="w-full p-2 border rounded" placeholder="Ví dụ: Tóc xoăn vàng" /></div> <div><label className="block text-xs font-bold text-gray-700">Loại</label> <select name="type" value={formData.type} onChange={handleChange} className="w-full p-2 border rounded"> <option value="hair">Tóc</option><option value="face">Mặt</option><option value="shirt">Áo</option><option value="pants">Quần</option><option value="hat">Mũ</option><option value="accessory">Phụ kiện</option><option value="pet">Thú cưng</option> </select> </div> <div><label className="block text-xs font-bold text-gray-700">Giá tiền (VNĐ)</label><input type="number" name="price" value={formData.price} onChange={handleChange} className="w-full p-2 border rounded" /></div> <div><label className="block text-xs font-bold text-gray-700">Link Ảnh (URL)</label><input name="imageUrl" value={formData.imageUrl} onChange={handleChange} className="w-full p-2 border rounded" />{formData.imageUrl && <img src={formData.imageUrl} alt="Preview" className="mt-2 h-16 object-contain mx-auto border" />}</div> <div className="grid grid-cols-2 gap-2"> <div><label className="block text-xs font-bold text-gray-700">Rộng (cm)</label><input type="number" name="widthCm" value={formData.widthCm} onChange={handleChange} className="w-full p-2 border rounded" step="0.1" /></div> <div><label className="block text-xs font-bold text-gray-700">Cao (cm)</label><input type="number" name="heightCm" value={formData.heightCm} onChange={handleChange} className="w-full p-2 border rounded" step="0.1" /></div> </div> </div> <div className="flex justify-end gap-2 mt-6"><button onClick={onCancel} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Hủy</button><button onClick={() => onSave(formData)} className="px-4 py-2 bg-luvin-pink text-white font-bold rounded hover:opacity-90">Lưu</button></div> </div> </div> );
-};
-
-const getStatusColor = (status: string) => {
-    switch (status) {
-        case 'Đã giao hàng': return 'bg-green-100 text-green-800 border-green-200';
-        case 'Đã xác nhận': case 'Đang xử lý': return 'bg-blue-100 text-blue-800 border-blue-200';
-        case 'Đang giao hàng': return 'bg-orange-100 text-orange-800 border-orange-200';
-        case 'Hủy đơn': return 'bg-red-100 text-red-800 border-red-200';
-        default: return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    }
 };
 
 const AdminPage: React.FC = () => {
@@ -201,7 +210,6 @@ const AdminPage: React.FC = () => {
         }
     };
 
-    const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
     const formatDate = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleDateString('vi-VN');
     const formatDateTime = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleString('vi-VN');
 
@@ -262,26 +270,25 @@ const AdminPage: React.FC = () => {
     if (!currentUser) return <div className="min-h-screen flex items-center justify-center bg-white"><div className="w-80 text-center"><h1 className="text-2xl font-bold mb-4 text-gray-800">The Luvin Admin</h1><form onSubmit={handleLogin} className="space-y-4"><input type="email" placeholder="Email" className="w-full p-3 border border-gray-300 rounded" value={email} onChange={e => setEmail(e.target.value)} required /><input type="password" placeholder="Mật khẩu" className="w-full p-3 border border-gray-300 rounded" value={loginPass} onChange={e => setLoginPass(e.target.value)} required />{loginError && <p className="text-red-500 text-sm">{loginError}</p>}<button type="submit" className="w-full bg-black text-white font-bold py-3 rounded hover:opacity-80">Đăng nhập</button></form></div></div>;
 
     return (
-        <div className="min-h-screen bg-white text-gray-800 font-sans">
-            {/* Top Navigation Minimalist */}
-            <div className="border-b border-gray-200 sticky top-0 bg-white z-20">
-                <div className="max-w-screen-2xl mx-auto px-4 h-14 flex justify-between items-center">
-                    <div className="flex items-center gap-8">
-                        <span className="font-bold text-lg tracking-tight">THE LUVIN ADMIN</span>
-                        <div className="flex gap-1">
-                            {userRole === 'admin' && <button onClick={() => setActiveTab('dashboard')} className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-gray-100 text-black' : 'text-gray-500 hover:text-black'}`}>Thống kê</button>}
-                            <button onClick={() => setActiveTab('orders')} className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'orders' ? 'bg-gray-100 text-black' : 'text-gray-500 hover:text-black'}`}>Đơn hàng</button>
-                            {userRole === 'admin' && <button onClick={() => setActiveTab('products')} className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'products' ? 'bg-gray-100 text-black' : 'text-gray-500 hover:text-black'}`}>Sản phẩm</button>}
+        <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
+            <div className="max-w-screen-2xl mx-auto px-4 py-6">
+                
+                {/* NEW Admin Header/Navigation - Minimalist */}
+                <div className="flex flex-col md:flex-row justify-between items-center border-b border-gray-200 pb-4 mb-6 sticky top-0 bg-gray-50 z-10">
+                    <span className="font-bold text-2xl tracking-tight text-black mb-4 md:mb-0">THE LUVIN ADMIN</span>
+                    <div className="flex items-center gap-6">
+                        <div className="flex gap-2 p-1 border rounded-lg bg-white">
+                            {userRole === 'admin' && <button onClick={() => setActiveTab('dashboard')} className={`px-3 py-1.5 rounded text-sm font-bold transition-colors ${activeTab === 'dashboard' ? 'bg-black text-white' : 'text-gray-500 hover:text-black'}`}>Thống kê</button>}
+                            <button onClick={() => setActiveTab('orders')} className={`px-3 py-1.5 rounded text-sm font-bold transition-colors ${activeTab === 'orders' ? 'bg-black text-white' : 'text-gray-500 hover:text-black'}`}>Đơn hàng</button>
+                            {userRole === 'admin' && <button onClick={() => setActiveTab('products')} className={`px-3 py-1.5 rounded text-sm font-bold transition-colors ${activeTab === 'products' ? 'bg-black text-white' : 'text-gray-500 hover:text-black'}`}>Sản phẩm</button>}
+                        </div>
+                        <div className="flex items-center gap-3 text-sm">
+                            <span className="text-gray-600 font-medium hidden sm:inline">{currentUser.email}</span>
+                            <button onClick={handleLogout} className="text-red-600 hover:bg-red-50 px-3 py-1 rounded">Thoát</button>
                         </div>
                     </div>
-                    <div className="flex items-center gap-4 text-sm">
-                        <span className="text-gray-500">{currentUser.email}</span>
-                        <button onClick={handleLogout} className="text-red-600 hover:underline">Thoát</button>
-                    </div>
                 </div>
-            </div>
 
-            <div className="max-w-screen-2xl mx-auto px-4 py-6">
                 {/* --- DASHBOARD --- */}
                 {activeTab === 'dashboard' && userRole === 'admin' && (
                     <div className="space-y-8">
@@ -343,10 +350,10 @@ const AdminPage: React.FC = () => {
                             
                             <div className="overflow-y-auto flex-grow pr-2 space-y-3">
                                 {displayOrders.length > 0 ? displayOrders.map(order => (
-                                    <div key={order.id} onClick={() => setSelectedOrder(order)} className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedOrder?.id === order.id ? 'ring-2 ring-black border-transparent' : 'hover:border-gray-400'} ${order.isUrgent ? 'bg-red-50 border-red-200' : 'bg-white'}`}>
+                                    <div key={order.id} onClick={() => setSelectedOrder(order)} className={`p-4 border rounded-lg cursor-pointer transition-all bg-white ${selectedOrder?.id === order.id ? 'ring-2 ring-black border-transparent shadow-md' : 'hover:border-black'} ${order.isUrgent ? 'border-red-400 shadow-sm' : 'border-gray-200'}`}>
                                         <div className="flex justify-between items-start mb-2">
                                             <span className="font-bold text-sm">{order.id}</span>
-                                            {order.isUrgent && <span className="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">GẤP</span>}
+                                            {order.isUrgent && <span className="text-red-600 text-[10px] px-2 py-0.5 rounded-full font-bold border border-red-300">GẤP</span>}
                                         </div>
                                         <div className="flex justify-between items-center text-xs text-gray-600">
                                             <span>{order.customer.name}</span>
@@ -405,9 +412,9 @@ const AdminPage: React.FC = () => {
 
                                     {/* Ghi chú nội bộ (Admin) */}
                                     <div className="mb-6">
-                                        <p className="text-xs font-bold text-gray-400 uppercase mb-2">Ghi chú nội bộ</p>
+                                        <p className="text-xs font-bold text-gray-400 uppercase mb-2">Ghi chú nội bộ & Deadline Admin</p>
                                         <div className="flex gap-2">
-                                            <input type="text" className="flex-grow p-2 border rounded text-sm bg-yellow-50 border-yellow-200" placeholder="Ghi chú cho đơn này..." value={noteInput} onChange={(e) => setNoteInput(e.target.value)} />
+                                            <input type="text" className="flex-grow p-2 border rounded text-sm bg-yellow-50 border-yellow-200" placeholder="Ghi chú cho đơn này..." value={noteInput} onChange={(e) => setNoteInput(e.target.value)} disabled={userRole === 'warehouse'} />
                                             {userRole === 'admin' && (
                                                 <>
                                                     <input type="date" className="p-2 border rounded text-sm" value={adminDeadlineInput} onChange={(e) => setAdminDeadlineInput(e.target.value)} />
@@ -492,7 +499,7 @@ const AdminPage: React.FC = () => {
 
                 {isEditingProduct && <ProductForm initialData={editingPart} onSave={handleSaveProduct} onCancel={() => setIsEditingProduct(false)} />}
                 {loading && <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50"><div className="text-black font-bold animate-pulse">Đang xử lý...</div></div>}
-            </main>
+            </div>
         </div>
     );
 };
