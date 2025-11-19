@@ -1,3 +1,4 @@
+// components/AdminPage.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { getAllOrders, updateOrder } from '../services/orderService';
 import { getAllParts, addPart, updatePart, deletePart, seedDatabase } from '../services/productService';
@@ -46,6 +47,7 @@ const AdminPage: React.FC = () => {
     
     const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products'>('dashboard');
     
+    // State bộ lọc Dashboard
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const today = new Date().toISOString().split('T')[0];
     const [startDate, setStartDate] = useState(thirtyDaysAgo); 
@@ -53,6 +55,10 @@ const AdminPage: React.FC = () => {
     const [comparisonEnabled, setComparisonEnabled] = useState(false);
     const [quickDateFilter, setQuickDateFilter] = useState('30days'); 
 
+    // State quản lý đơn hàng
+    const [orderViewMode, setOrderViewMode] = useState<'active' | 'history'>('active'); // 'active': Đang xử lý, 'history': Đã xong
+
+    // State khác
     const [isEditingProduct, setIsEditingProduct] = useState(false);
     const [editingPart, setEditingPart] = useState<LegoPart | null>(null);
     const [noteInput, setNoteInput] = useState('');
@@ -68,10 +74,8 @@ const AdminPage: React.FC = () => {
                 if (role) {
                     setCurrentUser(user);
                     setUserRole(role);
-                    // Chặn quyền truy cập ngay khi đăng nhập
                     if (role === 'warehouse') setActiveTab('orders');
                     else setActiveTab('dashboard');
-                    
                     fetchOrders();
                     if (role === 'admin') fetchProducts();
                 } else {
@@ -141,12 +145,14 @@ const AdminPage: React.FC = () => {
 
     const handleConfirmPacked = () => {
         if (selectedOrder && currentUser) {
-            if (confirm(`Xác nhận bạn (${currentUser.email}) đã bọc xong đơn ${selectedOrder.id}?`)) {
+            if (confirm(`Xác nhận bạn (${currentUser.email}) đã bọc xong đơn ${selectedOrder.id}? Đơn sẽ chuyển sang trạng thái 'Đã giao hàng'.`)) {
                 handleUpdate(selectedOrder.id, {
-                    status: 'Đã giao hàng', 
+                    status: 'Đã giao hàng', // Chuyển trạng thái HOÀN THÀNH
                     packerEmail: currentUser.email, 
                     packedAt: new Date().toISOString() 
                 });
+                // Tự động đóng chi tiết đơn sau khi bọc xong để chọn đơn khác
+                setSelectedOrder(null);
             }
         }
     };
@@ -155,7 +161,7 @@ const AdminPage: React.FC = () => {
     const formatDate = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleDateString('vi-VN');
     const formatDateTime = (dateString: string) => (!dateString) ? '---' : new Date(dateString).toLocaleString('vi-VN');
 
-    // --- LOGIC LỌC NGÀY THÁNG THÔNG MINH (FIX LỖI 0Đ) ---
+    // --- LOGIC LỌC NGÀY THÁNG ĐÃ SỬA (Fix lỗi hiển thị 0đ) ---
     const stats = useMemo(() => {
         const start = new Date(startDate); start.setHours(0,0,0,0);
         const end = new Date(endDate); end.setHours(23,59,59,999);
@@ -164,19 +170,17 @@ const AdminPage: React.FC = () => {
             if (quickDateFilter === 'all') return true;
 
             let orderDate: Date;
-            // Ưu tiên 1: Lấy ngày tạo chuẩn (nếu có)
-            // @ts-ignore
+            // Ưu tiên 1: Lấy ngày từ createdAt
             if (order.createdAt) {
-                // @ts-ignore
                 orderDate = new Date(order.createdAt);
             } 
-            // Ưu tiên 2: Đoán từ ID (nếu là đơn cũ)
-            else if (order.id && order.id.length >= 6 && !isNaN(Number(order.id.slice(-6)))) {
-                orderDate = new Date(Number(order.id.slice(-6)) * 1000);
+            // Ưu tiên 2: Lấy từ ngày giao hàng (để fallback cho đơn cũ)
+            else if (order.delivery && order.delivery.date) {
+                orderDate = new Date(order.delivery.date);
             }
-            // Ưu tiên 3: Nếu không biết, coi như là đơn hôm nay (để hiển thị lên)
+            // Ưu tiên 3: Coi như đơn hôm nay
             else {
-                orderDate = new Date(); 
+                orderDate = new Date();
             }
 
             return orderDate.getTime() >= start.getTime() && orderDate.getTime() <= end.getTime();
@@ -239,7 +243,12 @@ const AdminPage: React.FC = () => {
         return result;
     }, [orders, sortMode]);
     
+    // --- PHÂN LOẠI DANH SÁCH ĐƠN HÀNG ---
     const activeOrders = useMemo(() => sortedOrders.filter(o => o.status !== 'Đã giao hàng' && o.status !== 'Hủy đơn'), [sortedOrders]);
+    const historyOrders = useMemo(() => sortedOrders.filter(o => o.status === 'Đã giao hàng' || o.status === 'Hủy đơn'), [sortedOrders]);
+    
+    // Chọn danh sách để hiển thị dựa trên mode
+    const displayOrders = orderViewMode === 'active' ? activeOrders : historyOrders;
 
     if (!currentUser) {
         return (
@@ -269,8 +278,8 @@ const AdminPage: React.FC = () => {
                         </span>
                         <div className="hidden sm:flex space-x-6">
                             {userRole === 'admin' && <button onClick={() => handleSwitchTab('dashboard')} className={`capitalize font-medium ${activeTab === 'dashboard' ? 'text-luvin-pink border-b-2 border-luvin-pink' : 'text-gray-500'}`}>Dashboard</button>}
-                            <button onClick={() => handleSwitchTab('orders')} className={`capitalize font-medium ${activeTab === 'orders' ? 'text-luvin-pink border-b-2 border-luvin-pink' : 'text-gray-500'}`}>Đơn hàng ({orders.length})</button>
-                            {userRole === 'admin' && <button onClick={() => handleSwitchTab('products')} className={`capitalize font-medium ${activeTab === 'products' ? 'text-luvin-pink border-b-2 border-luvin-pink' : 'text-gray-500'}`}>Sản phẩm ({products.length})</button>}
+                            <button onClick={() => handleSwitchTab('orders')} className={`capitalize font-medium ${activeTab === 'orders' ? 'text-luvin-pink border-b-2 border-luvin-pink' : 'text-gray-500'}`}>Đơn hàng</button>
+                            {userRole === 'admin' && <button onClick={() => handleSwitchTab('products')} className={`capitalize font-medium ${activeTab === 'products' ? 'text-luvin-pink border-b-2 border-luvin-pink' : 'text-gray-500'}`}>Sản phẩm</button>}
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -328,16 +337,69 @@ const AdminPage: React.FC = () => {
                 {activeTab === 'orders' && (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-140px)]">
                         <div className="lg:col-span-1 bg-white rounded-lg shadow overflow-hidden flex flex-col">
-                            <div className="p-3 border-b bg-gray-50 flex gap-2"><button onClick={() => setSortMode('newest')} className={`flex-1 py-2 text-xs font-bold rounded ${sortMode === 'newest' ? 'bg-white border-luvin-pink text-luvin-pink border' : 'bg-gray-200'}`}>Mới nhất</button><button onClick={() => setSortMode('urgent')} className={`flex-1 py-2 text-xs font-bold rounded ${sortMode === 'urgent' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}>Cần làm gấp 🔥</button></div>
-                            <div className="overflow-y-auto flex-grow">{activeOrders.map(order => (<div key={order.id} onClick={() => setSelectedOrder(order)} className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${selectedOrder?.id === order.id ? 'bg-pink-50 border-l-4 border-luvin-pink' : ''} ${order.isUrgent ? 'bg-red-50' : ''}`}><div className="flex justify-between mb-1"><span className="font-bold text-gray-800 flex items-center gap-1">{order.isUrgent && <span>🔥</span>} {order.id}</span><span className={`text-xs px-2 rounded ${order.adminDeadline ? 'bg-red-100 text-red-800 font-bold' : 'bg-gray-100 text-gray-500'}`}>{order.adminDeadline ? `Hạn chốt: ${formatDate(order.adminDeadline)}` : `Khách hẹn: ${formatDate(order.delivery.date)}`}</span></div><div className="flex justify-between text-sm"><span className="text-gray-600">{order.customer.name}</span>{userRole === 'admin' && <span className="font-bold text-luvin-pink">{formatCurrency(order.totalPrice)}</span>}</div></div>))}</div>
-                            <p className="p-2 text-center text-xs text-gray-500 border-t bg-gray-50">Đơn hoàn thành/hủy đã ẩn.</p>
+                            {/* THANH CÔNG CỤ SẮP XẾP & CHUYỂN CHẾ ĐỘ */}
+                            <div className="p-3 border-b bg-gray-50 flex flex-col gap-3">
+                                {/* Tab chuyển đổi Đang xử lý / Lịch sử */}
+                                <div className="flex bg-gray-200 rounded-lg p-1">
+                                    <button 
+                                        onClick={() => { setOrderViewMode('active'); setSelectedOrder(null); }}
+                                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${orderViewMode === 'active' ? 'bg-white text-blue-600 shadow' : 'text-gray-600 hover:text-gray-800'}`}
+                                    >
+                                        Đang xử lý ({activeOrders.length})
+                                    </button>
+                                    <button 
+                                        onClick={() => { setOrderViewMode('history'); setSelectedOrder(null); }}
+                                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${orderViewMode === 'history' ? 'bg-white text-gray-800 shadow' : 'text-gray-600 hover:text-gray-800'}`}
+                                    >
+                                        Lịch sử ({historyOrders.length})
+                                    </button>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <button onClick={() => setSortMode('newest')} className={`flex-1 py-2 text-xs font-bold rounded ${sortMode === 'newest' ? 'bg-white border-luvin-pink text-luvin-pink border' : 'bg-gray-200'}`}>Mới nhất</button>
+                                    <button onClick={() => setSortMode('urgent')} className={`flex-1 py-2 text-xs font-bold rounded ${sortMode === 'urgent' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}>Cần làm gấp 🔥</button>
+                                </div>
+                            </div>
+                            
+                            {/* DANH SÁCH ĐƠN HÀNG */}
+                            <div className="overflow-y-auto flex-grow">
+                                {displayOrders.length > 0 ? displayOrders.map(order => (
+                                    <div 
+                                        key={order.id} 
+                                        onClick={() => setSelectedOrder(order)} 
+                                        className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${selectedOrder?.id === order.id ? 'bg-pink-50 border-l-4 border-luvin-pink' : ''} ${order.isUrgent ? 'bg-red-50' : ''}`}
+                                    >
+                                        <div className="flex justify-between mb-1">
+                                            <span className="font-bold text-gray-800 flex items-center gap-1">
+                                                {order.isUrgent && <span>🔥</span>} {order.id}
+                                            </span>
+                                            <span className={`text-xs px-2 rounded ${order.adminDeadline ? 'bg-red-100 text-red-800 font-bold' : 'bg-gray-100 text-gray-500'}`}>
+                                                {order.adminDeadline ? `Hạn chốt: ${formatDate(order.adminDeadline)}` : `Khách hẹn: ${formatDate(order.delivery.date)}`}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-600">{order.customer.name}</span>
+                                            {/* Ẩn doanh thu với kho */}
+                                            <span className="font-bold text-luvin-pink">
+                                                {userRole === 'admin' ? formatCurrency(order.totalPrice) : `${order.items.length} SP`}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <div className="p-8 text-center text-gray-400 text-sm">
+                                        {orderViewMode === 'active' ? 'Không có đơn cần xử lý' : 'Chưa có lịch sử đơn hàng'}
+                                    </div>
+                                )}
+                            </div>
                         </div>
+        
+                        {/* Cột phải: Chi tiết */}
                         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6 overflow-y-auto">
                             {selectedOrder ? (
                                 <div>
                                     <div className="flex justify-between items-center border-b pb-4 mb-4"><h2 className="text-xl font-bold">{selectedOrder.id} <span className="text-sm font-normal text-gray-500">({selectedOrder.status})</span></h2><label className="flex items-center cursor-pointer bg-gray-100 px-3 py-2 rounded hover:bg-gray-200"><input type="checkbox" className="mr-2" checked={selectedOrder.isUrgent || false} onChange={(e) => handleUpdate(selectedOrder.id, { isUrgent: e.target.checked }, false)} /><span className="text-sm font-bold text-red-600">Đánh dấu Gấp 🔥</span></label></div>
                                     
-                                    {/* NÚT BỌC HÀNG (CHỈ HIỆN VỚI KHO) */}
+                                    {/* NÚT BỌC HÀNG (CHỈ HIỆN VỚI KHO VÀ KHI ĐƠN CHƯA XONG) */}
                                     {userRole === 'warehouse' && !selectedOrder.packedAt ? (
                                         <div className="bg-green-50 border border-green-200 p-4 rounded-lg mb-6 flex items-center justify-between">
                                             <div><h3 className="font-bold text-green-800">Trạng thái: Chưa đóng gói</h3><p className="text-sm text-green-600">Hãy kiểm tra kỹ sản phẩm trước khi đóng.</p></div>
@@ -361,7 +423,7 @@ const AdminPage: React.FC = () => {
                     </div>
                 )}
 
-                {/* --- PRODUCTS (CHỈ ADMIN MỚI THẤY) --- */}
+                {/* --- PRODUCTS --- */}
                 {activeTab === 'products' && userRole === 'admin' && (
                     <div>
                         <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
